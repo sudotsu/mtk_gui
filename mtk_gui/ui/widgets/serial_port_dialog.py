@@ -8,6 +8,9 @@ class SerialPortDialog(QDialog):
     """Dialog for selecting a serial port."""
 
     def __init__(self, parent=None):
+        """
+        Initialize the serial port selection dialog and its interface.
+        """
         super().__init__(parent)
         self.setWindowTitle("Select Serial Port")
         self.setMinimumWidth(300)
@@ -15,6 +18,7 @@ class SerialPortDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the dialog interface for serial port selection."""
         layout = QVBoxLayout(self)
 
         layout.addWidget(QLabel("Available serial ports:"))
@@ -41,6 +45,7 @@ class SerialPortDialog(QDialog):
         layout.addLayout(btn_row)
 
     def _refresh_ports(self):
+        """Refresh the available serial port options in the selection list."""
         self._combo.clear()
         self._combo.addItem("(auto-detect)", None)
         try:
@@ -51,9 +56,15 @@ class SerialPortDialog(QDialog):
             pass
 
     def _accept(self):
+        """Store the selected serial port and close the dialog."""
         self._selected_port = self._combo.currentData()
         self.accept()
 
     @property
     def selected_port(self):
+        """Return the serial port selected in the dialog.
+        
+        Returns:
+        	str: The selected port identifier, or None for automatic detection.
+        """
         return self._selected_port

@@ -20,12 +20,16 @@ class LogPanel(QWidget):
     }
 
     def __init__(self, parent=None):
+        """Initialize the log panel with an empty message store and the lowest log-level threshold."""
         super().__init__(parent)
         self._all_messages = []
         self._min_level = logging.DEBUG
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Constructs the search, level filter, log display, and log management controls.
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -65,6 +69,11 @@ class LogPanel(QWidget):
 
     @staticmethod
     def _monospace_font():
+        """Create the monospace font used by the log display.
+        
+        Returns:
+            QFont: A 9-point Consolas font with a monospace style hint.
+        """
         from PySide6.QtGui import QFont
         font = QFont("Consolas", 9)
         font.setStyleHint(QFont.StyleHint.Monospace)
@@ -72,12 +81,24 @@ class LogPanel(QWidget):
 
     @Slot(str, int)
     def append_log(self, message: str, level: int = logging.INFO):
-        """Add a log message."""
+        """
+        Add a log message and display it when it meets the active level and search filters.
+        
+        Parameters:
+            message (str): The log message to store.
+            level (int): The logging level associated with the message.
+        """
         self._all_messages.append((message, level))
         if level >= self._min_level and self._matches_search(message):
             self._append_colored(message, level)
 
     def _append_colored(self, message: str, level: int):
+        """Append a log message to the display using the color associated with its level.
+        
+        Parameters:
+        	message (str): The log message to display.
+        	level (int): The logging level used to select the message color.
+        """
         color = self.LEVEL_COLORS.get(level, "#d4d4d4")
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))
@@ -88,27 +109,46 @@ class LogPanel(QWidget):
         self._log_view.ensureCursorVisible()
 
     def _on_level_changed(self, index: int):
+        """Update the minimum visible log level and refresh the displayed messages.
+        
+        Parameters:
+        	index (int): Index of the selected log-level threshold.
+        """
         levels = [logging.DEBUG, logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR]
         self._min_level = levels[index]
         self._apply_filter()
 
     def _matches_search(self, message: str) -> bool:
+        """
+        Determine whether a log message matches the current search query.
+        
+        Parameters:
+        	message (str): The log message to search.
+        
+        Returns:
+        	bool: `true` if the search query is empty or appears in the message, `false` otherwise.
+        """
         query = self._search.text().strip().lower()
         if not query:
             return True
         return query in message.lower()
 
     def _apply_filter(self):
+        """Rebuild the visible log view using the selected level threshold and search query."""
         self._log_view.clear()
         for msg, level in self._all_messages:
             if level >= self._min_level and self._matches_search(msg):
                 self._append_colored(msg, level)
 
     def clear(self):
+        """Clear all stored log messages and remove their displayed entries."""
         self._all_messages.clear()
         self._log_view.clear()
 
     def _export(self):
+        """
+        Export all stored log messages to a user-selected UTF-8 text file.
+        """
         path, _ = QFileDialog.getSaveFileName(self, "Export Log", "mtk_log.txt", "Text (*.txt)")
         if path:
             with open(path, "w", encoding="utf-8") as f:

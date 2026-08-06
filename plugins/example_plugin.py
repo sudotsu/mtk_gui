@@ -11,10 +11,12 @@ class ExamplePlugin(MtkPlugin):
     description = "Demonstrates the plugin API with a simple tab."
 
     def __init__(self):
+        """Initialize the plugin with no registered context or widget."""
         self._ctx = None
         self._widget = None
 
     def register(self, ctx: PluginContext) -> None:
+        """Register the plugin with the application context and add its example tab."""
         self._ctx = ctx
 
         self._widget = QWidget()
@@ -35,6 +37,7 @@ class ExamplePlugin(MtkPlugin):
         ctx.add_tab(self._widget, "Example")
 
     def _show_info(self):
+        """Log the connected device chipset or indicate that no device is connected."""
         info = self._ctx.get_device_info()
         if info.get("chipset"):
             self._ctx.log(f"Connected device: {info['chipset']}")
@@ -42,6 +45,12 @@ class ExamplePlugin(MtkPlugin):
             self._ctx.log("No device connected.")
 
     def on_device_connected(self, device_info: dict) -> None:
+        """
+        Log a message when a device connects.
+        
+        Parameters:
+            device_info (dict): Device information, including an optional ``chipset`` value.
+        """
         self._ctx.log(f"[Example Plugin] Device connected: {device_info.get('chipset', '?')}")
 
     def on_device_disconnected(self) -> None:

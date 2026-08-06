@@ -18,6 +18,7 @@ class StatusLed(QLabel):
         self.set_color(Colors.LED_DISCONNECTED)
 
     def set_color(self, color: str):
+        """Set the indicator's background color."""
         self.setStyleSheet(
             f"background-color: {color}; border-radius: 8px; border: 1px solid #555;"
         )
@@ -27,10 +28,14 @@ class DeviceTab(QWidget):
     """Device connection settings and info display."""
 
     def __init__(self, parent=None):
+        """Initialize the device tab and build its user interface."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Set up the device tab's status display, device information fields, and connection settings controls.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
@@ -145,11 +150,17 @@ class DeviceTab(QWidget):
         layout.addStretch()
 
     def _browse_file(self, target: QLineEdit):
+        """Open a file chooser and populate the target field with the selected binary file path.
+        
+        Parameters:
+        	target (QLineEdit): Field to update with the selected file path.
+        """
         path, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
 
     def _browse_workdir(self):
+        """Selects a working directory and updates the working-directory field when a directory is chosen."""
         d = QFileDialog.getExistingDirectory(self, "Select Working Directory")
         if d:
             self._workdir_input.setText(d)
@@ -158,14 +169,26 @@ class DeviceTab(QWidget):
 
     @property
     def connect_button(self) -> QPushButton:
+        """Provide access to the device connection button.
+        
+        Returns:
+            QPushButton: The device connection button.
+        """
         return self._connect_btn
 
     @property
     def disconnect_button(self) -> QPushButton:
+        """Return the button used to disconnect from the device."""
         return self._disconnect_btn
 
     def get_settings(self) -> dict:
-        """Return current connection settings."""
+        """
+        Return the configured device connection settings.
+        
+        Returns:
+            dict: Settings containing normalized loader and preloader paths, the selected
+                serial port, working directory, and IoT and Stock DA mode flags.
+        """
         serial = self._serial_combo.currentData()
         if serial is None and self._serial_combo.currentText() != "(auto-detect)":
             serial = self._serial_combo.currentText()
@@ -180,7 +203,12 @@ class DeviceTab(QWidget):
 
     @Slot(object)
     def update_device_info(self, info):
-        """Update device info fields from DeviceInfo object."""
+        """
+        Update the displayed device information from a device-information object.
+        
+        Parameters:
+            info: Object containing the device chipset, hardware, software, boot, flash, MEID, and SoC details.
+        """
         mapping = {
             "chipset": info.chipset,
             "hwcode": info.hwcode,
@@ -199,7 +227,12 @@ class DeviceTab(QWidget):
 
     @Slot(object)
     def update_connection_state(self, state):
-        """Update status LED and label based on DeviceState."""
+        """
+        Update the connection status display and button availability for a device state.
+        
+        Parameters:
+            state: The current device connection state.
+        """
         from mtk_gui.backend.device_manager import DeviceState
         state_map = {
             DeviceState.DISCONNECTED: ("Disconnected", Colors.LED_DISCONNECTED),

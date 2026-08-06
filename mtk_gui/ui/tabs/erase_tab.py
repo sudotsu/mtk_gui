@@ -11,10 +11,17 @@ from mtk_gui.constants import PART_TYPES
 
 class EraseTab(QWidget):
     def __init__(self, parent=None):
+        """
+        Initialize the erase control widget and its user interface.
+        
+        Parameters:
+            parent: Optional parent widget.
+        """
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """Builds the widget layout and initializes its partition and sector erase controls."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -88,13 +95,29 @@ class EraseTab(QWidget):
 
     @property
     def erase_button(self) -> QPushButton:
+        """Return the button used to initiate the erase operation.
+        
+        Returns:
+            QPushButton: The erase button.
+        """
         return self._erase_btn
 
     @property
     def partition_list(self) -> PartitionList:
+        """Provide access to the partition selection widget.
+        
+        Returns:
+        	PartitionList: The partition list widget used by the tab.
+        """
         return self._partition_list
 
     def get_erase_params(self) -> dict:
+        """
+        Collect the parameters selected for the current erase mode.
+        
+        Returns:
+        	dict: A dictionary containing the erase mode and partition type, plus either the selected partitions or the starting sector and sector count. Empty sector fields are represented as zero.
+        """
         mode = self._mode_group.checkedId()
         params = {"mode": mode, "parttype": self._parttype_combo.currentText()}
         if mode == 0:

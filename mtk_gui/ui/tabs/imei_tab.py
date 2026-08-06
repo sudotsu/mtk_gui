@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
 
 class ImeiTab(QWidget):
     def __init__(self, parent=None):
+        """Initialize the IMEI operation interface and its controls."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the widget layout and initialize its IMEI, modem, and NVItem controls."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -110,23 +112,41 @@ class ImeiTab(QWidget):
         layout.addStretch()
 
     def _browse_nv(self):
+        """Open a file picker and update the NV file path when a file is selected."""
         path, _ = QFileDialog.getOpenFileName(self, "Select NV File", "", "All (*)")
         if path:
             self._nv_file.setText(path)
 
     @property
     def read_button(self) -> QPushButton:
+        """Return the button used to initiate IMEI reading.
+        
+        Returns:
+        	QPushButton: The IMEI read button.
+        """
         return self._read_btn
 
     @property
     def write_button(self) -> QPushButton:
+        """Return the button used to write IMEI values."""
         return self._write_btn
 
     @property
     def patch_modem_button(self) -> QPushButton:
+        """Provides access to the modem patch action button.
+        
+        Returns:
+            QPushButton: The modem patch button.
+        """
         return self._patch_modem_btn
 
     def set_imei_display(self, imei1: str, imei2: str = ""):
+        """Update the IMEI display with the primary and optional secondary IMEI values.
+        
+        Parameters:
+        	imei1 (str): The primary IMEI value.
+        	imei2 (str): The optional secondary IMEI value.
+        """
         text = f"IMEI1: {imei1 or '—'}"
         if imei2:
             text += f"\nIMEI2: {imei2}"
@@ -134,17 +154,30 @@ class ImeiTab(QWidget):
 
     @property
     def decrypt_button(self) -> QPushButton:
+        """Return the button used to decrypt NV files.
+        
+        Returns:
+            QPushButton: The NV file decryption button.
+        """
         return self._decrypt_btn
 
     @property
     def encrypt_button(self) -> QPushButton:
+        """Return the NV item encryption button."""
         return self._encrypt_btn
 
     @property
     def nv_file(self) -> str:
+        """Return the selected NV file path with surrounding whitespace removed."""
         return self._nv_file.text().strip()
 
     def get_imei_params(self) -> dict:
+        """
+        Collect the configured IMEI operation parameters.
+        
+        Returns:
+        	dict: A dictionary containing trimmed values for IMEI1, IMEI2, seed, AES key, and product.
+        """
         return {
             "imei1": self._imei1_input.text().strip(),
             "imei2": self._imei2_input.text().strip(),
@@ -154,6 +187,11 @@ class ImeiTab(QWidget):
         }
 
     def set_enabled_all(self, enabled: bool):
+        """Enable or disable all IMEI, modem, and NV file operation buttons.
+        
+        Parameters:
+            enabled (bool): Whether the operation buttons should be enabled.
+        """
         for btn in (self._read_btn, self._write_btn, self._patch_modem_btn,
                      self._decrypt_btn, self._encrypt_btn):
             btn.setEnabled(enabled)

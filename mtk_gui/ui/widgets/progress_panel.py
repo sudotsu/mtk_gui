@@ -8,6 +8,7 @@ class ProgressPanel(QWidget):
     """Shows operation and overall progress with ETA/speed."""
 
     def __init__(self, parent=None):
+        """Initialize the progress panel and its progress-tracking state."""
         super().__init__(parent)
         self._start_time = 0
         self._last_update = 0
@@ -15,6 +16,9 @@ class ProgressPanel(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Build the progress panel's progress bar and informational labels.
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
@@ -55,7 +59,13 @@ class ProgressPanel(QWidget):
 
     @Slot(int, int)
     def update_progress(self, current: int, total: int):
-        """Update progress bar and compute ETA/speed."""
+        """
+        Update the progress display and estimate transfer speed and completion time.
+        
+        Parameters:
+        	current (int): The current amount of completed progress.
+        	total (int): The total amount of progress, or a value less than or equal to zero when the total is unavailable.
+        """
         if total <= 0:
             self._op_bar.setRange(0, 0)  # indeterminate
             return
@@ -83,10 +93,20 @@ class ProgressPanel(QWidget):
 
     @Slot(str)
     def set_status(self, text: str):
+        """Update the displayed operation status text.
+        
+        Parameters:
+            text (str): The status text to display.
+        """
         self._status_label.setText(text)
 
     def finish(self, status: str = "Done"):
-        """Mark operation complete."""
+        """
+        Mark the operation as complete and display its elapsed time.
+        
+        Parameters:
+        	status (str): Text to display as the completion status.
+        """
         self._op_bar.setValue(self._op_bar.maximum() or 100)
         self._status_label.setText(status)
         self._speed_label.setText("")
@@ -103,6 +123,14 @@ class ProgressPanel(QWidget):
 
     @staticmethod
     def _format_speed(bps: float) -> str:
+        """Format a transfer rate using an appropriate byte-per-second unit.
+        
+        Parameters:
+            bps (float): Transfer rate in bytes per second.
+        
+        Returns:
+            str: The formatted rate in B/s, KB/s, or MB/s.
+        """
         if bps >= 1024 * 1024:
             return f"{bps / (1024*1024):.1f} MB/s"
         if bps >= 1024:
@@ -111,6 +139,14 @@ class ProgressPanel(QWidget):
 
     @staticmethod
     def _format_time(seconds: float) -> str:
+        """Format a duration as hours, minutes, and seconds.
+        
+        Parameters:
+            seconds (float): Duration to format.
+        
+        Returns:
+            str: The duration expressed using the largest applicable time units.
+        """
         s = int(seconds)
         if s >= 3600:
             return f"{s // 3600}h {(s % 3600) // 60}m {s % 60}s"

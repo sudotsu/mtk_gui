@@ -12,10 +12,12 @@ from mtk_gui.constants import PART_TYPES
 
 class WriteTab(QWidget):
     def __init__(self, parent=None):
+        """Initialize the write-configuration widget and its user interface."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the widget layout and controls for selecting flash-write modes and parameters."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -147,16 +149,36 @@ class WriteTab(QWidget):
         layout.addLayout(btn_row)
 
     def _browse_open(self, target: QLineEdit):
+        """
+        Select a binary file and place its path in the target input field.
+        
+        Parameters:
+        	target (QLineEdit): Input field to receive the selected file path.
+        """
         path, _ = QFileDialog.getOpenFileName(self, "Select File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
 
     def _browse_dir(self, target: QLineEdit):
+        """Selects a directory and writes its path to the target input field.
+        
+        Parameters:
+        	target (QLineEdit): Input field to receive the selected directory path.
+        """
         d = QFileDialog.getExistingDirectory(self, "Select Directory")
         if d:
             target.setText(d)
 
     def _on_part_file_select(self, item: QTreeWidgetItem, column: int):
+        """Selects a binary file for the partition represented by the activated tree item.
+        
+        Parameters:
+        	item (QTreeWidgetItem): Partition item whose file path is updated.
+        	column (int): Activated tree column.
+        
+        Returns:
+        	None
+        """
         if column == 1:
             path, _ = QFileDialog.getOpenFileName(self, f"Select file for {item.text(0)}", "", "Binary (*.bin);;All (*)")
             if path:
@@ -166,9 +188,16 @@ class WriteTab(QWidget):
 
     @property
     def write_button(self) -> QPushButton:
+        """Return the destructive write button."""
         return self._write_btn
 
     def set_partitions(self, partitions: list):
+        """
+        Replace the partition list displayed in the widget.
+        
+        Parameters:
+        	partitions (list): Partition objects whose names populate the partition tree.
+        """
         self._part_tree.clear()
         for p in partitions:
             item = QTreeWidgetItem([p.name, ""])
@@ -176,12 +205,29 @@ class WriteTab(QWidget):
             self._part_tree.addTopLevelItem(item)
 
     def get_mode(self) -> int:
+        """
+        Get the selected flash-write mode.
+        
+        Returns:
+        	int: The identifier of the selected mode.
+        """
         return self._mode_group.checkedId()
 
     def get_parttype(self) -> str:
+        """Return the selected partition type.
+        
+        Returns:
+        	str: The currently selected partition type.
+        """
         return self._parttype_combo.currentText()
 
     def get_write_params(self) -> dict:
+        """
+        Collect the configured parameters for the selected flash-write mode.
+        
+        Returns:
+        	dict: A dictionary containing the selected mode, partition type, and mode-specific write parameters.
+        """
         mode = self.get_mode()
         params = {"mode": mode, "parttype": self.get_parttype()}
         if mode == 0:

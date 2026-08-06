@@ -11,7 +11,12 @@ from mtk_gui.plugins.loader import load_plugins
 
 
 def get_plugin_dirs() -> list:
-    """Return plugin search directories."""
+    """
+    Provide the application-local and user configuration directories used to search for plugins.
+    
+    Returns:
+        list[str]: Plugin search directory paths.
+    """
     dirs = []
     # App-local plugins dir
     app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +31,9 @@ def get_plugin_dirs() -> list:
 
 
 def main():
+    """
+    Initialize the application, load plugins, display the main window, and start the Qt event loop.
+    """
     QApplication.setOrganizationName(ORG_NAME)
     QApplication.setApplicationName(APP_NAME)
 

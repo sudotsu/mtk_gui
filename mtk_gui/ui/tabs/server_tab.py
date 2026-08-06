@@ -12,6 +12,9 @@ class ServerTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Build the key-server controls, status display, and read-only server log.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -56,9 +59,17 @@ class ServerTab(QWidget):
 
     @property
     def start_button(self) -> QPushButton:
+        """Expose the key server start button."""
         return self._run_btn
 
     def set_status(self, running: bool, message: str = ""):
+        """
+        Update the displayed server status and its visual styling.
+        
+        Parameters:
+            running (bool): Whether the server is currently running.
+            message (str): Optional status text. Defaults to the corresponding running or idle label.
+        """
         if running:
             self._status_label.setText(message or "Running...")
             self._status_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #44aa44;")
@@ -67,4 +78,5 @@ class ServerTab(QWidget):
             self._status_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
     def append_server_log(self, message: str):
+        """Append a message to the server log."""
         self._server_log.appendPlainText(message)

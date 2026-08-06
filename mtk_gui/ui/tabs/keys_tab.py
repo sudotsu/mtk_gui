@@ -12,6 +12,9 @@ class KeysTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Build the widget layout for directory selection, key generation, key display, and status messages.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -50,24 +53,46 @@ class KeysTab(QWidget):
         layout.addWidget(self._status)
 
     def _browse_dir(self):
+        """Select an output directory and update the directory input when a directory is chosen."""
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             self._dir_input.setText(d)
 
     @property
     def generate_button(self) -> QPushButton:
+        """Provide access to the key generation button.
+        
+        Returns:
+        	QPushButton: The key generation button.
+        """
         return self._gen_btn
 
     @property
     def output_directory(self) -> str:
+        """
+        Return the selected output directory path.
+        
+        Returns:
+        	str: The trimmed directory path, or "." when the input is empty.
+        """
         return self._dir_input.text().strip() or "."
 
     def set_keys(self, keys: dict):
-        """Display generated keys in the table."""
+        """
+        Display key-value pairs in the table.
+        
+        Parameters:
+        	keys (dict): Mapping of key names to their generated values.
+        """
         self._table.setRowCount(len(keys))
         for row, (key, value) in enumerate(keys.items()):
             self._table.setItem(row, 0, QTableWidgetItem(str(key)))
             self._table.setItem(row, 1, QTableWidgetItem(str(value)))
 
     def set_status(self, msg: str):
+        """Update the status message displayed by the widget.
+        
+        Parameters:
+            msg (str): Text to display as the current status message.
+        """
         self._status.setText(msg)

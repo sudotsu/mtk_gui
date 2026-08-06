@@ -60,17 +60,35 @@ class DeviceManager(QObject):
 
     @property
     def state(self) -> DeviceState:
+        """
+        Get the device manager's current connection state.
+        
+        Returns:
+            DeviceState: The current device connection state.
+        """
         return self._state
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return information about the currently connected device."""
         return self._device_info
 
     @property
     def wrapper(self) -> Optional[MtkWrapper]:
+        """
+        Provide the current MediaTek device wrapper.
+        
+        Returns:
+        	MtkWrapper or None: The active wrapper, or None if no wrapper is configured.
+        """
         return self._wrapper
 
     def _set_state(self, new_state: DeviceState):
+        """Update the manager's state and emit a change notification when it changes.
+        
+        Parameters:
+        	new_state (DeviceState): The state to assign to the manager.
+        """
         if new_state != self._state:
             self._state = new_state
             self.state_changed.emit(new_state)
@@ -89,7 +107,9 @@ class DeviceManager(QObject):
         self._poll_stop.set()
 
     def _poll_usb_loop(self):
-        """Background thread: poll USB until device found or stopped."""
+        """
+        Poll for a configured MediaTek USB preloader device until one is detected or polling is stopped.
+        """
         try:
             import usb.core
             from mtk_gui.constants import MTK_USB_VID, MTK_PRELOADER_PIDS
@@ -115,7 +135,11 @@ class DeviceManager(QObject):
             self._poll_stop.wait(interval)
 
     def _on_usb_detected(self, pid: int):
-        """Handle USB detection on the main thread (via signal)."""
+        """Update the device state and log the detected MediaTek USB device.
+        
+        Parameters:
+        	pid (int): Product ID of the detected USB device.
+        """
         from mtk_gui.constants import MTK_USB_VID
         self._set_state(DeviceState.PRELOADER)
         self.log_message.emit(
@@ -146,7 +170,12 @@ class DeviceManager(QObject):
         worker.start()
 
     def _do_connect(self, worker=None):
-        """Run connection in worker thread."""
+        """
+        Initialize the device wrapper and attempt to connect to the device.
+        
+        Returns:
+        	bool: `True` if the connection succeeds, `False` otherwise.
+        """
         self._wrapper.init(
             preloader=self.preloader_path,
             loader=self.da_loader_path,
@@ -159,6 +188,11 @@ class DeviceManager(QObject):
         return success
 
     def _on_connect_finished(self, success):
+        """Update the device state and emit connection results after a connection attempt completes.
+        
+        Parameters:
+        	success (bool): Whether the device connection succeeded.
+        """
         if success:
             self._device_info = self._wrapper.get_device_info()
             self._set_state(DeviceState.CONNECTED)
@@ -169,6 +203,11 @@ class DeviceManager(QObject):
             self.log_message.emit("Connection failed.", logging.ERROR)
 
     def _on_connect_error(self, msg: str):
+        """Set the device state to error and emit the connection error message.
+        
+        Parameters:
+        	msg (str): Description of the connection error.
+        """
         self._set_state(DeviceState.ERROR)
         self.log_message.emit(f"Connection error: {msg}", logging.ERROR)
 
@@ -192,15 +231,18 @@ class DeviceManager(QObject):
         return w
 
     def _track_worker(self, worker: Worker):
+        """Track a worker and remove it from the active worker list when it finishes or reports an error."""
         self._workers.append(worker)
         worker.finished.connect(lambda _: self._untrack_worker(worker))
         worker.error.connect(lambda _: self._untrack_worker(worker))
 
     def _untrack_worker(self, worker: Worker):
+        """Remove a worker from the active worker list."""
         if worker in self._workers:
             self._workers.remove(worker)
 
     def _cancel_all_workers(self):
+        """Cancel all active workers and clear the worker registry."""
         for w in list(self._workers):
             w.cancel()
         self._workers.clear()

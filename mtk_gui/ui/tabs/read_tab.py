@@ -12,10 +12,12 @@ from mtk_gui.constants import PART_TYPES
 
 class ReadTab(QWidget):
     def __init__(self, parent=None):
+        """Initialize the read-operation controls and configure their user interface."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the read-operation controls and connect mode selection to the corresponding content page."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -149,11 +151,21 @@ class ReadTab(QWidget):
         layout.addLayout(btn_row)
 
     def _browse_dir(self, target: QLineEdit):
+        """Select an output directory and populate the target line edit when a directory is chosen.
+        
+        Parameters:
+        	target (QLineEdit): Line edit to receive the selected directory path.
+        """
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             target.setText(d)
 
     def _browse_save(self, target: QLineEdit):
+        """Select an output file and update the target field when a path is chosen.
+        
+        Parameters:
+        	target (QLineEdit): Field that receives the selected output-file path.
+        """
         path, _ = QFileDialog.getSaveFileName(self, "Select Output File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
@@ -162,19 +174,41 @@ class ReadTab(QWidget):
 
     @property
     def read_button(self) -> QPushButton:
+        """Return the button used to initiate the read operation."""
         return self._read_btn
 
     @property
     def partition_list(self) -> PartitionList:
+        """Expose the partition list widget used to select partitions.
+        
+        Returns:
+        	PartitionList: The partition list widget.
+        """
         return self._partition_list
 
     def get_mode(self) -> int:
+        """Return the numeric identifier of the selected read mode.
+        
+        Returns:
+        	int: The selected read mode identifier.
+        """
         return self._mode_group.checkedId()
 
     def get_parttype(self) -> str:
+        """Return the currently selected partition type.
+        
+        Returns:
+        	str: The selected partition type.
+        """
         return self._parttype_combo.currentText()
 
     def get_read_params(self) -> dict:
+        """
+        Collect the settings for the selected read mode.
+        
+        Returns:
+        	dict: A parameter dictionary containing the selected mode and partition type, along with mode-specific values. Offset and length are parsed as hexadecimal integers, while start sector and sector count are parsed as decimal integers; empty numeric fields produce zero.
+        """
         mode = self.get_mode()
         params = {"mode": mode, "parttype": self.get_parttype()}
         if mode == 0:

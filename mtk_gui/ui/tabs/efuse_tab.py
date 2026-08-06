@@ -11,6 +11,7 @@ class EfuseTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the widget layout with a disabled read button and a read-only eFuse table."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -34,10 +35,20 @@ class EfuseTab(QWidget):
 
     @property
     def read_button(self) -> QPushButton:
+        """Expose the button used to initiate eFuse reads.
+        
+        Returns:
+            QPushButton: The eFuse read button.
+        """
         return self._read_btn
 
     def set_efuses(self, efuse_data: list):
-        """Set eFuse table. Each item: (index, address, value)."""
+        """
+        Populate the eFuse table with index, address, and value rows.
+        
+        Parameters:
+            efuse_data (list): Rows containing `(index, address, value)` tuples. Integer addresses and values are displayed as eight-digit hexadecimal strings.
+        """
         self._table.setRowCount(len(efuse_data))
         for row, (idx, addr, val) in enumerate(efuse_data):
             self._table.setItem(row, 0, QTableWidgetItem(str(idx)))

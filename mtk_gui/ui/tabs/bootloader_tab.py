@@ -11,6 +11,9 @@ class BootloaderTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Build the controls for bootloader state changes and vbmeta patching.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
 
@@ -62,20 +65,37 @@ class BootloaderTab(QWidget):
 
     @property
     def unlock_button(self) -> QPushButton:
+        """Provide the button used to unlock the bootloader.
+        
+        Returns:
+            QPushButton: The bootloader unlock button.
+        """
         return self._unlock_btn
 
     @property
     def lock_button(self) -> QPushButton:
+        """Provides the button used to lock the bootloader.
+        
+        Returns:
+            QPushButton: The bootloader lock button.
+        """
         return self._lock_btn
 
     @property
     def vbmeta_button(self) -> QPushButton:
+        """Return the button used to patch vbmeta."""
         return self._vbmeta_btn
 
     @property
     def critical_mode(self) -> bool:
+        """Return whether critical mode is enabled."""
         return self._critical_check.isChecked()
 
     @property
     def vbmeta_mode(self) -> int:
+        """Get the selected vbmeta patch mode.
+        
+        Returns:
+        	int: The selected vbmeta patch mode.
+        """
         return self._vbmeta_mode.currentData()

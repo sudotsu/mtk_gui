@@ -45,6 +45,7 @@ class MtkWrapper:
     """Wraps mtkclient init/connect and all DA operations."""
 
     def __init__(self, gui_signal=None, gui_progress=None, status_signal=None):
+        """Initialize the wrapper with optional GUI and status callbacks."""
         self.mtk: Optional[Mtk] = None
         self.da_handler: Optional[DaHandler] = None
         self.config: Optional[MtkConfig] = None
@@ -56,16 +57,39 @@ class MtkWrapper:
     def _patch_sys_exit(self):
         """Monkey-patch sys.exit() to raise OperationAborted instead."""
         def patched_exit(code=0):
+            """
+            Intercept a system-exit request by raising an operation-aborted exception.
+            
+            Parameters:
+                code: The requested exit status.
+            
+            Raises:
+                OperationAborted: Always raised with the requested exit status.
+            """
             raise OperationAborted(f"sys.exit({code}) intercepted")
         sys.exit = patched_exit
 
     def _restore_sys_exit(self):
+        """Restore the original ``sys.exit`` implementation."""
         sys.exit = self._original_exit
 
     def init(self, preloader: str = None, loader: str = None,
              serial_port: str = None, iot: bool = False,
              stock: bool = False, work_dir: str = ".") -> Mtk:
-        """Initialize MtkConfig and Mtk instance."""
+        """
+             Initialize the MediaTek client with the specified connection and loader settings.
+             
+             Parameters:
+                 preloader (str): Optional path to a preloader file.
+                 loader (str): Optional download agent path.
+                 serial_port (str): Optional serial port name.
+                 iot (bool): Whether to enable IoT mode.
+                 stock (bool): Whether to use stock device settings.
+                 work_dir (str): Directory used for hardware parameter data.
+             
+             Returns:
+                 Mtk: The initialized MediaTek client.
+             """
         loglevel = logging.INFO
         self.config = MtkConfig(
             loglevel=loglevel,
@@ -87,7 +111,15 @@ class MtkWrapper:
         return self.mtk
 
     def connect(self, work_dir: str = ".") -> bool:
-        """Connect to device via DA. Returns True on success."""
+        """
+        Connect to the device through the Download Agent.
+        
+        Parameters:
+            work_dir (str): Directory used for connection-related files.
+        
+        Returns:
+            bool: `True` if the connection and DA configuration succeed, `False` otherwise.
+        """
         if self.mtk is None:
             return False
         self._patch_sys_exit()
@@ -111,7 +143,12 @@ class MtkWrapper:
         self.config = None
 
     def get_device_info(self) -> DeviceInfo:
-        """Gather device info from current connection."""
+        """
+        Gather information about the connected device.
+        
+        Returns:
+        	DeviceInfo: Device metadata, or an empty instance when no device is initialized.
+        """
         info = DeviceInfo()
         if self.mtk is None or self.config is None:
             return info
@@ -144,7 +181,11 @@ class MtkWrapper:
         return info
 
     def get_partitions(self, worker=None) -> list:
-        """Get list of partitions from GPT."""
+        """Retrieve partition metadata from the device's GPT.
+        
+        Returns:
+            list: Partition information, or an empty list when GPT data is unavailable.
+        """
         partitions = []
         if self.da_handler is None:
             return partitions
@@ -170,7 +211,18 @@ class MtkWrapper:
 
     def read_partition(self, partition_name: str, filename: str,
                        parttype: str = "user", worker=None) -> bool:
-        """Read a single partition to file."""
+        """
+                       Read a partition from the connected device into a file.
+                       
+                       Parameters:
+                           partition_name (str): Name of the partition to read.
+                           filename (str): Destination file path.
+                           parttype (str): Partition type used for the read operation.
+                           worker: Optional worker associated with the operation.
+                       
+                       Returns:
+                           bool: `True` if the partition is read successfully, `False` otherwise.
+                       """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -185,7 +237,18 @@ class MtkWrapper:
 
     def read_partitions(self, directory: str, parttype: str = "user",
                         skip: list = None, worker=None) -> bool:
-        """Read all partitions to directory."""
+        """
+                        Read selected device partitions into a directory.
+                        
+                        Parameters:
+                        	directory (str): Destination directory for the partition images.
+                        	parttype (str): Partition type to read.
+                        	skip (list): Partition names to exclude.
+                        	worker: Optional worker used by the underlying read operation.
+                        
+                        Returns:
+                        	bool: `True` if the operation succeeds, `False` if the device is unavailable or the operation is aborted.
+                        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -198,7 +261,16 @@ class MtkWrapper:
 
     def read_flash(self, filename: str, parttype: str = "user",
                    offset: int = None, length: int = None, worker=None) -> bool:
-        """Read full flash or offset range to file."""
+        """Read flash data or a specified range to a file.
+                   
+                   Parameters:
+                       parttype (str): Flash region to read.
+                       offset (int): Starting byte offset, when reading a range.
+                       length (int): Number of bytes to read, when reading a range.
+                   
+                   Returns:
+                       bool: `True` if the read succeeds, `False` otherwise.
+                   """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -211,7 +283,18 @@ class MtkWrapper:
 
     def read_sectors(self, start: int, sectors: int, filename: str,
                      parttype: str = "user", worker=None) -> bool:
-        """Read by sector range."""
+        """
+                     Read a sector range from the connected device into a file.
+                     
+                     Parameters:
+                     	start (int): Starting sector.
+                     	sectors (int): Number of sectors to read.
+                     	filename (str): Destination file path.
+                     	parttype (str): Partition type containing the sectors.
+                     
+                     Returns:
+                     	bool: `true` if the read succeeds, `false` otherwise.
+                     """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -224,7 +307,18 @@ class MtkWrapper:
 
     def read_offset(self, start: int, length: int, filename: str,
                     parttype: str = "user", worker=None) -> bool:
-        """Read by byte offset range."""
+        """
+                    Read a byte range from the device into a file.
+                    
+                    Parameters:
+                    	start (int): The starting byte offset.
+                    	length (int): The number of bytes to read.
+                    	filename (str): The destination file path.
+                    	parttype (str): The partition type containing the byte range.
+                    
+                    Returns:
+                    	bool: `True` if the read succeeds, `False` if no device connection is available or the operation is aborted.
+                    """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -239,7 +333,18 @@ class MtkWrapper:
 
     def write_partitions(self, parttype: str, filenames: list,
                          partitions: list, worker=None) -> bool:
-        """Write files to named partitions."""
+        """
+                         Write files to the specified device partitions.
+                         
+                         Parameters:
+                             parttype (str): Partition type used for the write operation.
+                             filenames (list): Files containing the data to write.
+                             partitions (list): Target partition names.
+                             worker: Optional worker associated with the operation.
+                         
+                         Returns:
+                             bool: `True` if the write succeeds, `False` if no device connection is available or the operation is aborted.
+                         """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -251,7 +356,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def write_flash(self, filenames: list, parttype: str = "user", worker=None) -> bool:
-        """Write full flash image(s)."""
+        """Write one or more full flash images to the device.
+        
+        Parameters:
+            filenames (list): Flash image files to write.
+            parttype (str): Partition type targeted by the images.
+        
+        Returns:
+            bool: `True` if the write operation succeeds, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -263,7 +376,16 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def write_from_directory(self, parttype: str, directory: str, worker=None) -> bool:
-        """Write all matching partition files from directory."""
+        """
+        Write matching partition image files from a directory to the device.
+        
+        Parameters:
+            parttype (str): Partition type used to select the files.
+            directory (str): Directory containing the partition files.
+        
+        Returns:
+            bool: `True` if the write operation succeeds, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -276,7 +398,19 @@ class MtkWrapper:
 
     def write_offset(self, start: int, length: int, filename: str,
                      parttype: str = "user", worker=None) -> bool:
-        """Write to a byte offset."""
+        """
+                     Write data from a file to a device at a byte offset.
+                     
+                     Parameters:
+                         start (int): Starting byte offset.
+                         length (int): Number of bytes to write.
+                         filename (str): Path to the input file.
+                         parttype (str): Partition type containing the offset.
+                         worker: Optional progress worker.
+                     
+                     Returns:
+                         bool: `True` if the write succeeds, `False` if no device connection is available or the operation is aborted.
+                     """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -290,7 +424,16 @@ class MtkWrapper:
     # ── Erase operations ──────────────────────────────────
 
     def erase_partitions(self, partitions: list, parttype: str = "user", worker=None) -> bool:
-        """Erase named partitions."""
+        """
+        Erase the specified partitions on the connected device.
+        
+        Parameters:
+        	partitions (list): Names of the partitions to erase.
+        	parttype (str): Partition type containing the named partitions.
+        
+        Returns:
+        	bool: `True` if the erase operation succeeds, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -303,7 +446,17 @@ class MtkWrapper:
 
     def erase_sectors(self, sector: int, sectors: int,
                       parttype: str = "user", worker=None) -> bool:
-        """Erase by sector range."""
+        """Erase a range of sectors on the specified partition type.
+                      
+                      Parameters:
+                          sector (int): The starting sector.
+                          sectors (int): The number of sectors to erase.
+                          parttype (str): The partition type containing the sectors.
+                          worker: An optional operation worker.
+                      
+                      Returns:
+                          bool: `True` if the erase operation succeeds, `False` otherwise.
+                      """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -317,7 +470,15 @@ class MtkWrapper:
     # ── Security operations ───────────────────────────────
 
     def generate_keys(self, directory: str = ".", worker=None) -> bool:
-        """Generate hardware keys."""
+        """Generate hardware keys in the specified directory.
+        
+        Parameters:
+        	directory (str): Directory where the generated hardware keys are stored.
+        	worker: Optional worker used by the key-generation operation.
+        
+        Returns:
+        	bool: `True` if key generation succeeds, `False` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -330,7 +491,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def seccfg_unlock(self, lock: bool = False, critical: bool = False, worker=None) -> bool:
-        """Lock or unlock bootloader via seccfg."""
+        """Set the device's secure configuration to lock or unlock mode.
+        
+        Parameters:
+            lock (bool): Whether to lock the bootloader; otherwise, unlock it.
+            critical (bool): Whether to apply the operation to critical partitions.
+        
+        Returns:
+            bool: `True` if the operation succeeds, `False` if the device is unavailable or the operation is aborted.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -343,7 +512,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def vbmeta_patch(self, vbmode: int = 3, worker=None) -> bool:
-        """Patch vbmeta for verified boot bypass."""
+        """
+        Patch verified boot metadata using the specified mode.
+        
+        Parameters:
+        	vbmode (int): Verified boot patch mode.
+        
+        Returns:
+        	bool: `True` if the patch succeeds, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -358,7 +535,18 @@ class MtkWrapper:
 
     def peek(self, addr: int, length: int, filename: str = "",
              registers: bool = False, worker=None):
-        """Read memory at address."""
+        """
+             Read a region of device memory.
+             
+             Parameters:
+                 addr (int): Starting memory address.
+                 length (int): Number of bytes to read.
+                 filename (str): Optional file path for saving the data.
+                 registers (bool): Whether to include register data.
+             
+             Returns:
+                 bytes or None: The memory contents, or `None` if the device is unavailable or the operation is aborted.
+             """
         if self.da_handler is None:
             return None
         self._patch_sys_exit()
@@ -370,7 +558,17 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def poke(self, addr: int, data: str, filename: str = "", worker=None) -> bool:
-        """Write memory at address."""
+        """
+        Write data to a device memory address.
+        
+        Parameters:
+            addr (int): Memory address to write.
+            data (str): Data to write.
+            filename (str): Optional file containing the data.
+        
+        Returns:
+            bool: `True` if the write succeeds, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -382,7 +580,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def dump_brom(self, filename: str, worker=None) -> bool:
-        """Dump BROM."""
+        """Dump the device's Boot ROM contents to a file.
+        
+        Parameters:
+            filename (str): Path of the output file.
+            worker: Optional worker used by the underlying dump operation.
+        
+        Returns:
+            bool: `True` if the dump succeeds, `False` if the device is unavailable or the operation is aborted.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -397,7 +603,17 @@ class MtkWrapper:
 
     def read_rpmb(self, filename: str = None, sector: str = None,
                   sectors: str = None, worker=None):
-        """Read RPMB."""
+        """
+                  Read data from RPMB storage.
+                  
+                  Parameters:
+                      filename (str, optional): Destination file for the RPMB data.
+                      sector (str, optional): Starting RPMB sector.
+                      sectors (str, optional): Number of sectors to read.
+                  
+                  Returns:
+                      The result of the RPMB read operation, or `None` if the device is unavailable or the operation is aborted.
+                  """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return None
         self._patch_sys_exit()
@@ -410,7 +626,17 @@ class MtkWrapper:
 
     def write_rpmb(self, filename: str = None, sector: int = 0,
                    sectors: int = None, worker=None) -> bool:
-        """Write RPMB."""
+        """
+                   Write data to RPMB storage.
+                   
+                   Parameters:
+                       filename (str): Path to the file containing data to write.
+                       sector (int): Starting RPMB sector.
+                       sectors (int): Number of sectors to write.
+                   
+                   Returns:
+                       bool: `True` if the write succeeds, `False` otherwise.
+                   """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -424,7 +650,15 @@ class MtkWrapper:
     # ── eFuse ─────────────────────────────────────────────
 
     def read_efuses(self, worker=None):
-        """Read eFuse values."""
+        """
+        Read the device's eFuse values.
+        
+        Parameters:
+            worker: Optional worker context used by the eFuse operation.
+        
+        Returns:
+            The eFuse values, or `None` if the device is unavailable or the operation is aborted.
+        """
         if self.da_handler is None:
             return None
         self._patch_sys_exit()
@@ -438,7 +672,16 @@ class MtkWrapper:
     # ── GPT ───────────────────────────────────────────────
 
     def dump_gpt(self, directory: str, worker=None) -> bool:
-        """Dump GPT to directory."""
+        """
+        Dump the device's GPT data to a directory.
+        
+        Parameters:
+        	directory (str): Destination directory for the GPT data.
+        	worker: Optional worker associated with the operation.
+        
+        Returns:
+        	bool: `True` if the GPT data is dumped successfully, `False` otherwise.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()
@@ -450,7 +693,16 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def erase_rpmb(self, sector: int = 0, sectors: int = None, worker=None) -> bool:
-        """Erase RPMB."""
+        """
+        Erase a range of sectors from RPMB storage.
+        
+        Parameters:
+        	sector (int): The first sector to erase.
+        	sectors (int): The number of sectors to erase.
+        
+        Returns:
+        	bool: `True` if the operation succeeds, `False` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -462,7 +714,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def auth_rpmb(self, rpmbkey: bytes = None, worker=None) -> bool:
-        """Authenticate RPMB with key."""
+        """
+        Authenticate the device's RPMB using the supplied key.
+        
+        Parameters:
+            rpmbkey (bytes): Key used to authenticate RPMB access.
+        
+        Returns:
+            bool: `true` if authentication succeeds, `false` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -477,7 +737,17 @@ class MtkWrapper:
 
     def read_imei(self, seed: bytes = b"", aeskey: bytes = b"" * 32,
                   worker=None) -> list:
-        """Read IMEI(s) from nvdata partition. Returns list of (imei, valid) tuples."""
+        """
+                  Read IMEI values from the device's `nvdata` partition.
+                  
+                  Parameters:
+                      seed (bytes): Seed used to process the NVItem data.
+                      aeskey (bytes): AES key used to process the NVItem data.
+                      worker: Optional worker context for the operation.
+                  
+                  Returns:
+                      list: Tuples containing each decoded IMEI and whether its check digit is valid.
+                  """
         if self.da_handler is None:
             return []
         self._patch_sys_exit()
@@ -521,7 +791,19 @@ class MtkWrapper:
     def write_imei(self, imeis: list, seed: bytes = b"",
                    aeskey: bytes = b"" * 32, product: str = "",
                    worker=None) -> bool:
-        """Write IMEI(s) to nvdata partition. imeis: list of IMEI strings."""
+        """
+                   Write IMEI values to the device's `nvdata` partition.
+                   
+                   Parameters:
+                   	imeis (list): IMEI strings to write.
+                   	seed (bytes): Optional encryption seed.
+                   	aeskey (bytes): Optional AES key.
+                   	product (str): Optional product identifier.
+                   	worker: Optional worker context for the operation.
+                   
+                   Returns:
+                   	bool: `True` if the `nvdata` partition is updated successfully, `False` otherwise.
+                   """
         if self.da_handler is None or not imeis:
             return False
         self._patch_sys_exit()
@@ -578,7 +860,17 @@ class MtkWrapper:
 
     def nvitem_crypt(self, filename: str, encrypt: bool = False,
                      worker=None):
-        """Encrypt or decrypt an NVItem file. Returns processed bytes or None."""
+        """
+                     Encrypt or decrypt the contents of an NVItem file.
+                     
+                     Parameters:
+                     	filename (str): Path to the NVItem file.
+                     	encrypt (bool): Whether to encrypt the file contents; otherwise, decrypt them.
+                     	worker: Optional worker context for the operation.
+                     
+                     Returns:
+                     	bytes: The processed NVItem data, or `None` if the operation is unavailable or aborted.
+                     """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return None
         self._patch_sys_exit()
@@ -598,7 +890,16 @@ class MtkWrapper:
     # ── Exploit ───────────────────────────────────────────
 
     def crash_preloader(self, mode: int = None, worker=None) -> bool:
-        """Crash preloader/DA to get into BROM mode. mode=None iterates all modes."""
+        """
+        Crash the preloader to enter BROM mode.
+        
+        Parameters:
+        	mode (int, optional): Crash mode to use. If omitted, the operation selects the available modes.
+        	worker: Optional worker context for the operation.
+        
+        Returns:
+        	`True` if the preloader crash succeeds, `False` otherwise.
+        """
         if self.mtk is None:
             return False
         self._patch_sys_exit()
@@ -611,7 +912,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def run_payload(self, filename: str, worker=None) -> bool:
-        """Load and run a payload binary via boot_to."""
+        """
+        Load and execute a payload binary on the connected device.
+        
+        Parameters:
+            filename (str): Path to the payload binary.
+        
+        Returns:
+            bool: `True` if the payload is loaded successfully, `False` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -625,7 +934,16 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def run_stage2(self, filename: str, addr: int = 0x200000, worker=None) -> bool:
-        """Load stage2 payload at address."""
+        """
+        Load a stage 2 payload into device memory.
+        
+        Parameters:
+            filename (str): Path to the stage 2 payload.
+            addr (int): Device memory address at which to load the payload.
+        
+        Returns:
+            bool: `true` if the payload loads successfully, `false` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -639,7 +957,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def set_meta_mode(self, porttype: str = "off", worker=None) -> bool:
-        """Set meta mode (off/usb/uart)."""
+        """
+        Set the device's meta mode.
+        
+        Parameters:
+            porttype (str): Meta mode to configure, such as ``"off"``, ``"usb"``, or ``"uart"``.
+        
+        Returns:
+            bool: ``True`` if the mode was configured successfully, ``False`` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -651,7 +977,14 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def shutdown(self, worker=None) -> bool:
-        """Shutdown device."""
+        """Powers down the connected device.
+        
+        Parameters:
+            worker: Optional operation worker passed to the device shutdown handler.
+        
+        Returns:
+            `True` if the shutdown operation succeeds, `False` otherwise.
+        """
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
         self._patch_sys_exit()
@@ -689,7 +1022,15 @@ class MtkWrapper:
             self._restore_sys_exit()
 
     def patch_modem(self, worker=None) -> bool:
-        """Patch modem partition."""
+        """
+        Patch the modem partition on the connected device.
+        
+        Parameters:
+            worker: Optional worker context used by the modem patching operation.
+        
+        Returns:
+            `True` if patching succeeds, `False` if no device handler is available or the operation is aborted.
+        """
         if self.da_handler is None:
             return False
         self._patch_sys_exit()

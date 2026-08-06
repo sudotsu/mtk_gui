@@ -31,6 +31,7 @@ from mtk_gui.ui.tabs.server_tab import ServerTab
 
 class MainWindow(QMainWindow):
     def __init__(self):
+        """Initialize the main application window, backend device manager, user interface, menus, signals, and persisted window settings."""
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.setMinimumSize(900, 650)
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self):
         # Central splitter: tabs on top, log panel on bottom
+        """Set up the main window's operation tabs, progress and log panels, splitter layout, and ready status message."""
         splitter = QSplitter(Qt.Orientation.Vertical)
 
         # Tab widget
@@ -109,6 +111,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready")
 
     def _setup_menus(self):
+        """Create the application's File, View, Plugins, and Help menus."""
         menubar = self.menuBar()
 
         # File menu
@@ -129,6 +132,7 @@ class MainWindow(QMainWindow):
         help_menu.addAction("About", self._show_about)
 
     def _connect_signals(self):
+        """Connect device-manager signals and operation-tab controls to their handlers."""
         dm = self.device_manager
 
         # Connection state
@@ -199,6 +203,7 @@ class MainWindow(QMainWindow):
     # ── Connection handlers ───────────────────────────────
 
     def _on_connect(self):
+        """Applies the selected device settings and initiates a device connection."""
         settings = self._device_tab.get_settings()
         dm = self.device_manager
         dm.preloader_path = settings["preloader"]
@@ -211,10 +216,16 @@ class MainWindow(QMainWindow):
         dm.connect_device()
 
     def _on_disconnect(self):
+        """Disconnect the device and reset the operation progress display."""
         self.device_manager.disconnect_device()
         self._progress_panel.reset()
 
     def _on_state_changed(self, state: DeviceState):
+        """Update the interface and plugins in response to a device connection state change.
+        
+        Parameters:
+        	state (DeviceState): The device's new connection state.
+        """
         self._device_tab.update_connection_state(state)
         connected = state == DeviceState.CONNECTED
 
@@ -250,10 +261,15 @@ class MainWindow(QMainWindow):
                 pass
 
     def _on_device_info_updated(self, info):
+        """Updates the device tab with the latest device information.
+        
+        Parameters:
+        	info: Device information to display.
+        """
         self._device_tab.update_device_info(info)
 
     def _load_partitions(self):
-        """Load partition list after connection (off main thread)."""
+        """Load the device's partition list asynchronously after connection."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -264,6 +280,11 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_partitions_loaded(self, partitions):
+        """Update the read, write, and erase tabs with the available device partitions.
+        
+        Parameters:
+        	partitions: Partition information to display in the operation tabs.
+        """
         if partitions:
             self._read_tab.partition_list.set_partitions(partitions)
             self._write_tab.set_partitions(partitions)
@@ -272,6 +293,7 @@ class MainWindow(QMainWindow):
     # ── Operation handlers ────────────────────────────────
 
     def _on_read(self):
+        """Starts the selected read operation and reports validation or worker errors."""
         params = self._read_tab.get_read_params()
         wrapper = self.device_manager.wrapper
         if not wrapper:
@@ -322,6 +344,7 @@ class MainWindow(QMainWindow):
             w.start()
 
     def _on_write(self):
+        """Starts the selected flash-writing operation after user confirmation."""
         params = self._write_tab.get_write_params()
         wrapper = self.device_manager.wrapper
         if not wrapper:
@@ -361,6 +384,7 @@ class MainWindow(QMainWindow):
             w.start()
 
     def _on_erase(self):
+        """Erases the selected partitions or sector range from the connected device after user confirmation."""
         params = self._erase_tab.get_erase_params()
         wrapper = self.device_manager.wrapper
         if not wrapper:
@@ -389,6 +413,7 @@ class MainWindow(QMainWindow):
             w.start()
 
     def _on_generate_keys(self):
+        """Generate device keys in the selected output directory."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -400,6 +425,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_keys_done(self, result):
+        """Finalize key generation and display the generated keys when available."""
         self._progress_panel.finish("Keys generated")
         self._keys_tab.set_status("Keys saved to hwparam.json")
         # Try to read and display the keys
@@ -415,6 +441,12 @@ class MainWindow(QMainWindow):
                 pass
 
     def _on_seccfg(self, lock: bool):
+        """
+        Change the bootloader lock state through the seccfg operation after user confirmation.
+        
+        Parameters:
+        	lock (bool): Whether to lock the bootloader; `False` unlocks it.
+        """
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -431,6 +463,9 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_vbmeta(self):
+        """
+        Patch vbmeta using the selected bootloader mode after user confirmation.
+        """
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -446,6 +481,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_peek(self):
+        """Reads a memory range from the connected device and displays the result."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -458,12 +494,14 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_peek_done(self, data):
+        """Complete a memory read operation and display the returned data in the memory viewer."""
         self._progress_panel.finish("Memory read complete")
         if data and isinstance(data, (bytes, bytearray)):
             params = self._memory_tab.get_peek_params()
             self._memory_tab.hex_viewer.set_data(data, params["addr"])
 
     def _on_poke(self):
+        """Writes the specified data to the selected memory address after user confirmation."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -480,6 +518,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_dump_brom(self):
+        """Dump the device's Boot ROM to a file named ``brom.bin`` in the selected directory."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -492,6 +531,7 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_rpmb_read(self):
+        """Read RPMB data from the connected device and report the operation result."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -501,6 +541,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("RPMB read", e))
 
     def _on_rpmb_write(self):
+        """Confirm and start writing data to the device's RPMB region."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -513,6 +554,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("RPMB write", e))
 
     def _on_read_efuses(self):
+        """Reads the device's eFuse values asynchronously and updates the progress panel with the result."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -523,6 +565,11 @@ class MainWindow(QMainWindow):
         w.start()
 
     def _on_efuses_done(self, data):
+        """Complete eFuse reading and display the retrieved values.
+        
+        Parameters:
+        	data (list): The eFuse values returned by the read operation.
+        """
         self._progress_panel.finish("eFuses read")
         if data and isinstance(data, list):
             self._efuse_tab.set_efuses(data)
@@ -530,6 +577,7 @@ class MainWindow(QMainWindow):
     # ── IMEI handlers ────────────────────────────────────
 
     def _on_imei_read(self):
+        """Read the device IMEIs using the configured seed and AES key."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -543,6 +591,12 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("IMEI read", e))
 
     def _on_imei_read_done(self, result):
+        """
+        Update the IMEI display and log the validity of each value returned by the device.
+        
+        Parameters:
+        	result (list): IMEI values paired with checksum-validity flags.
+        """
         self._progress_panel.finish("IMEI read complete")
         if result and isinstance(result, list):
             imei1 = result[0][0] if len(result) > 0 else ""
@@ -555,6 +609,7 @@ class MainWindow(QMainWindow):
             self._log_panel.append_log("No IMEIs found on device.", logging.WARNING)
 
     def _on_imei_write(self):
+        """Write the selected IMEI values to the connected device after confirmation."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -589,6 +644,10 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("Modem patch", e))
 
     def _on_nvitem_decrypt(self):
+        """Decrypt the selected NV file using the connected device.
+        
+        The operation updates the progress panel and reports completion or errors through the window UI.
+        """
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -603,6 +662,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("NVItem decrypt", e))
 
     def _on_nvitem_encrypt(self):
+        """Encrypts the selected NV file using the connected device wrapper."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -617,6 +677,13 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("NVItem encrypt", e))
 
     def _on_nvitem_done(self, op: str, result, filename: str):
+        """Finalize an NVItem operation and save successful output to a derived file.
+        
+        Parameters:
+            op (str): Operation name used in the completion message and output suffix.
+            result: Operation output bytes, or a falsey value when the operation fails.
+            filename (str): Base path for the output file.
+        """
         self._progress_panel.finish(f"NVItem {op.lower()} complete")
         if result:
             out_path = filename + f".{op.lower()}ed"
@@ -629,6 +696,11 @@ class MainWindow(QMainWindow):
     # ── Exploit handlers ─────────────────────────────────
 
     def _on_crash(self):
+        """
+        Crash the preloader to enter BROM mode after user confirmation.
+        
+        The selected crash mode determines how the preloader crash operation is performed.
+        """
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -672,6 +744,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("Payload", e))
 
     def _on_stage2(self):
+        """Runs the selected stage2 file on the connected device."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -687,6 +760,9 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("Stage2", e))
 
     def _on_meta_mode(self):
+        """
+        Set the connected device's meta mode.
+        """
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -698,6 +774,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("Meta mode", e))
 
     def _on_reset(self):
+        """Reset the connected device and report the operation status."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -707,6 +784,7 @@ class MainWindow(QMainWindow):
         w.error.connect(lambda e: self._on_op_error("Reset", e))
 
     def _on_shutdown(self):
+        """Shut down the connected device asynchronously."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -718,6 +796,7 @@ class MainWindow(QMainWindow):
     # ── RPMB erase handler ───────────────────────────────
 
     def _on_rpmb_erase(self):
+        """Erase the device's RPMB data after user confirmation."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -732,6 +811,7 @@ class MainWindow(QMainWindow):
     # ── Server handler ───────────────────────────────────
 
     def _on_server_start(self):
+        """Start the key server operation when a device wrapper is available."""
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
@@ -742,6 +822,7 @@ class MainWindow(QMainWindow):
         w.error.connect(self._on_server_error)
 
     def _on_server_done(self, result):
+        """Update the key server status, progress message, and log entry based on the operation result."""
         success = bool(result)
         self._server_tab.set_status(False,
                                     "Complete" if success else "Failed")
@@ -752,13 +833,20 @@ class MainWindow(QMainWindow):
             logging.INFO if success else logging.ERROR)
 
     def _on_server_error(self, error: str):
+        """Handle a key server operation error by updating its status and reporting the failure."""
         self._server_tab.set_status(False, "Error")
         self._on_op_error("Key server", error)
 
     # ── Button-disable helper ────────────────────────────
 
     def _start_op(self, button, func, *args, **kwargs):
-        """Create a worker, disable the triggering button, re-enable on completion."""
+        """
+        Start a background operation and disable its triggering button until completion or error.
+        
+        Parameters:
+        	button: The button to disable while the operation is running.
+        	func: The operation callable to execute.
+        """
         button.setEnabled(False)
         w = self.device_manager.create_worker(func, *args, **kwargs)
         w.finished.connect(lambda _: button.setEnabled(True))
@@ -769,12 +857,25 @@ class MainWindow(QMainWindow):
     # ── Operation result handlers ─────────────────────────
 
     def _on_op_done(self, name: str, result):
+        """
+        Update the progress and log panels with the outcome of an operation.
+        
+        Parameters:
+        	name (str): Operation name used in the status message.
+        	result: Operation result interpreted as successful when truthy.
+        """
         success = bool(result)
         status = f"{name}: {'OK' if success else 'FAILED'}"
         self._progress_panel.finish(status)
         self._log_panel.append_log(status, logging.INFO if success else logging.ERROR)
 
     def _on_op_error(self, name: str, error: str):
+        """Report an operation error through the progress panel, log panel, and warning dialog.
+        
+        Parameters:
+            name (str): Name of the failed operation.
+            error (str): Error message to report.
+        """
         self._progress_panel.finish(f"{name}: ERROR")
         self._log_panel.append_log(f"{name} error: {error}", logging.ERROR)
         QMessageBox.warning(self, f"{name} Error", str(error))
@@ -782,6 +883,7 @@ class MainWindow(QMainWindow):
     # ── Theme ─────────────────────────────────────────────
 
     def _toggle_theme(self):
+        """Toggle between the dark and light application themes and persist the selected theme."""
         if self._current_theme == THEME_DARK:
             self._current_theme = THEME_LIGHT
         else:
@@ -790,18 +892,34 @@ class MainWindow(QMainWindow):
         self._settings.setValue("theme", self._current_theme)
 
     def apply_initial_theme(self):
+        """Apply the persisted application theme to the main window."""
         self._apply_theme()
 
     def _apply_theme(self):
+        """Apply the stylesheet for the current application theme."""
         qss = load_stylesheet(self._current_theme)
         self.setStyleSheet(qss)
 
     # ── Plugin support ────────────────────────────────────
 
     def add_plugin_tab(self, widget, title: str):
+        """
+        Add a plugin-provided widget as a tab in the main window.
+        
+        Parameters:
+        	widget: The widget to display in the new tab.
+        	title (str): The tab title.
+        """
         self._tabs.addTab(widget, title)
 
     def add_plugin_menu_item(self, menu_path: str, action):
+        """
+        Add an action to a nested menu within the plugins menu.
+        
+        Parameters:
+        	menu_path (str): Slash-separated path identifying the target menu and action location.
+        	action: Action to add to the target menu.
+        """
         parts = menu_path.split("/")
         menu = self._plugins_menu
         for part in parts[:-1]:
@@ -817,6 +935,12 @@ class MainWindow(QMainWindow):
         menu.addAction(parts[-1], action)
 
     def set_plugins(self, plugins: list):
+        """
+        Store the plugins available to the main window.
+        
+        Parameters:
+        	plugins (list): Plugin instances to register.
+        """
         self._plugins = plugins
 
     def _reload_plugins(self):
@@ -825,6 +949,7 @@ class MainWindow(QMainWindow):
     # ── Window state ──────────────────────────────────────
 
     def _restore_geometry(self):
+        """Restore the window geometry and state saved in application settings."""
         geo = self._settings.value("geometry")
         if geo:
             self.restoreGeometry(geo)
@@ -833,6 +958,11 @@ class MainWindow(QMainWindow):
             self.restoreState(state)
 
     def closeEvent(self, event):
+        """Save the window state, stop device activity, clean up plugins, and close the window.
+        
+        Parameters:
+        	event: The close event to process.
+        """
         self._settings.setValue("geometry", self.saveGeometry())
         self._settings.setValue("windowState", self.saveState())
         self.device_manager.stop_polling()
@@ -845,6 +975,7 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _show_about(self):
+        """Display an About dialog containing the application name, description, license, and toolkit information."""
         QMessageBox.about(self, "About MTK-GUI",
             f"{APP_TITLE}\n\n"
             "Standalone GUI for mtkclient.\n"

@@ -18,6 +18,7 @@ class PartitionList(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """Builds the widget layout with partition controls and a checkable partition tree."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -54,7 +55,12 @@ class PartitionList(QWidget):
         layout.addWidget(self._tree)
 
     def set_partitions(self, partitions: list):
-        """Set partition list. Each item needs name, size, sectors attributes."""
+        """
+        Replace the displayed partition entries with the provided partitions.
+        
+        Parameters:
+        	partitions (list): Partition objects with `name`, `size`, and `sectors` attributes.
+        """
         self._tree.blockSignals(True)
         self._tree.clear()
         self._partitions = partitions
@@ -81,6 +87,7 @@ class PartitionList(QWidget):
         return selected
 
     def _select_all(self):
+        """Select all partitions and emit the updated selection."""
         self._tree.blockSignals(True)
         for i in range(self._tree.topLevelItemCount()):
             self._tree.topLevelItem(i).setCheckState(0, Qt.CheckState.Checked)
@@ -88,6 +95,9 @@ class PartitionList(QWidget):
         self.selection_changed.emit(self.get_selected())
 
     def _deselect_all(self):
+        """
+        Deselect all partitions and emit the updated selection.
+        """
         self._tree.blockSignals(True)
         for i in range(self._tree.topLevelItemCount()):
             self._tree.topLevelItem(i).setCheckState(0, Qt.CheckState.Unchecked)
@@ -100,6 +110,15 @@ class PartitionList(QWidget):
 
     @staticmethod
     def _format_size(size_bytes: int) -> str:
+        """
+        Format a byte count using a binary size unit.
+        
+        Parameters:
+            size_bytes (int): The size in bytes.
+        
+        Returns:
+            str: The rounded size with a unit from bytes through terabytes, or "0 B" for nonpositive values.
+        """
         if size_bytes <= 0:
             return "0 B"
         units = ("B", "KB", "MB", "GB", "TB")

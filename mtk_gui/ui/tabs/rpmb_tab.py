@@ -7,10 +7,14 @@ from PySide6.QtWidgets import (
 
 class RpmbTab(QWidget):
     def __init__(self, parent=None):
+        """Initialize the RPMB interface widget and its controls."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
+        """
+        Builds the user interface for RPMB read, write, erase, and authentication controls.
+        """
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -97,27 +101,54 @@ class RpmbTab(QWidget):
         layout.addStretch()
 
     def _browse_save(self, target):
+        """Opens a file-save dialog and assigns the selected output path to the target field.
+        
+        Parameters:
+        	target: The text field that receives the selected file path.
+        """
         path, _ = QFileDialog.getSaveFileName(self, "Output File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
 
     def _browse_open(self, target):
+        """Select an input binary file and assign its path to the target field.
+        
+        Parameters:
+        	target: The text field that receives the selected file path.
+        """
         path, _ = QFileDialog.getOpenFileName(self, "Input File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
 
     @property
     def read_button(self) -> QPushButton:
+        """Return the button used to start RPMB read operations.
+        
+        Returns:
+            QPushButton: The RPMB read button.
+        """
         return self._read_btn
 
     @property
     def write_button(self) -> QPushButton:
+        """Return the button used to initiate RPMB write operations."""
         return self._write_btn
 
     @property
     def erase_button(self) -> QPushButton:
+        """Return the button used to erase the RPMB partition.
+        
+        Returns:
+            QPushButton: The RPMB erase button.
+        """
         return self._erase_btn
 
     def set_enabled_all(self, enabled: bool):
+        """
+        Enable or disable all RPMB operation buttons.
+        
+        Parameters:
+        	enabled (bool): Whether the read, write, and erase buttons should be enabled.
+        """
         for btn in (self._read_btn, self._write_btn, self._erase_btn):
             btn.setEnabled(enabled)

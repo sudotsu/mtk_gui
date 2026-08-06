@@ -18,7 +18,13 @@ class HexViewer(QPlainTextEdit):
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
 
     def set_data(self, data: bytes, base_addr: int = 0):
-        """Display bytes as hex dump with address and ASCII columns."""
+        """
+        Display byte data as a fixed-width hexadecimal dump with addresses and ASCII representation.
+        
+        Parameters:
+            data (bytes): Byte sequence to display.
+            base_addr (int): Address assigned to the first byte.
+        """
         lines = []
         for offset in range(0, len(data), self.BYTES_PER_LINE):
             chunk = data[offset:offset + self.BYTES_PER_LINE]
@@ -44,4 +50,5 @@ class HexViewer(QPlainTextEdit):
         self.setPlainText("\n".join(lines))
 
     def clear_data(self):
+        """Clear the displayed hexadecimal data."""
         self.clear()

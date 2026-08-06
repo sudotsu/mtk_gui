@@ -13,6 +13,7 @@ class MemoryTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
+        """Build the user interface for memory inspection, writing, and dump operations."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -107,6 +108,7 @@ class MemoryTab(QWidget):
         layout.addWidget(dump_group)
 
     def _browse_dump_dir(self):
+        """Select an output directory and update the directory field when one is chosen."""
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             self._dump_dir.setText(d)
@@ -119,26 +121,41 @@ class MemoryTab(QWidget):
 
     @property
     def peek_save_button(self) -> QPushButton:
+        """Return the button used to read memory contents and save them to a file."""
         return self._peek_save_btn
 
     @property
     def poke_button(self) -> QPushButton:
+        """Return the button used to write data to memory.
+        
+        Returns:
+            QPushButton: The memory write button.
+        """
         return self._poke_btn
 
     @property
     def brom_button(self) -> QPushButton:
+        """Return the button used to initiate a BROM memory dump."""
         return self._brom_btn
 
     @property
     def sram_button(self) -> QPushButton:
+        """
+        Provide access to the SRAM dump button.
+        
+        Returns:
+        	QPushButton: The SRAM dump button.
+        """
         return self._sram_btn
 
     @property
     def dram_button(self) -> QPushButton:
+        """Return the button used to initiate a DRAM dump."""
         return self._dram_btn
 
     @property
     def memdump_button(self) -> QPushButton:
+        """Return the button used to start a full memory dump."""
         return self._memdump_btn
 
     @property
@@ -146,6 +163,15 @@ class MemoryTab(QWidget):
         return self._hex_viewer
 
     def get_peek_params(self) -> dict:
+        """
+        Parse and return the configured memory peek parameters.
+        
+        Returns:
+        	dict: A mapping containing the hexadecimal address under `"addr"`, the hexadecimal length under `"length"`, and the register-mode state under `"registers"`.
+        
+        Raises:
+        	ValueError: If the address or length contains invalid hexadecimal text.
+        """
         return {
             "addr": int(self._peek_addr.text() or "0", 16),
             "length": int(self._peek_len.text() or "0", 16),
@@ -153,6 +179,12 @@ class MemoryTab(QWidget):
         }
 
     def get_poke_params(self) -> dict:
+        """
+        Retrieve the address and data values for a memory write operation.
+        
+        Returns:
+        	dict: A mapping containing the parsed hexadecimal address under `"addr"` and the trimmed data string under `"data"`.
+        """
         return {
             "addr": int(self._poke_addr.text() or "0", 16),
             "data": self._poke_data.text().strip(),
@@ -160,9 +192,20 @@ class MemoryTab(QWidget):
 
     @property
     def dump_directory(self) -> str:
+        """
+        Get the configured memory dump output directory.
+        
+        Returns:
+        	str: The trimmed output directory, or "." when the field is empty.
+        """
         return self._dump_dir.text().strip() or "."
 
     def set_enabled_all(self, enabled: bool):
+        """Enable or disable all memory operation controls.
+        
+        Parameters:
+        	enabled (bool): Whether the controls should be enabled.
+        """
         for btn in (self._peek_btn, self._peek_save_btn, self._poke_btn,
                      self._brom_btn, self._sram_btn, self._dram_btn, self._memdump_btn):
             btn.setEnabled(enabled)

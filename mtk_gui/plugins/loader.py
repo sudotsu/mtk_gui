@@ -11,7 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 def discover_plugins(search_dirs: list) -> list:
-    """Find all .py files containing MtkPlugin subclasses in search_dirs."""
+    """
+    Discover plugin instances from Python files in the specified directories.
+    
+    Parameters:
+        search_dirs (list): Directories to scan for plugin files.
+    
+    Returns:
+        list: Instances of concrete `MtkPlugin` subclasses found in the directories.
+    """
     plugins = []
 
     for directory in search_dirs:
@@ -46,7 +54,15 @@ def discover_plugins(search_dirs: list) -> list:
 
 
 def load_plugins(app, search_dirs: list) -> list:
-    """Discover, instantiate, and register all plugins."""
+    """
+    Discover and register plugins with the application.
+    
+    Parameters:
+    	search_dirs (list): Directories to search for plugin files.
+    
+    Returns:
+    	list: Successfully registered plugin instances.
+    """
     plugins = discover_plugins(search_dirs)
     ctx = PluginContext(app)
 
