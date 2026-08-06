@@ -13,7 +13,6 @@ class MemoryTab(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        """Build the user interface for memory inspection, writing, and dump operations."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -34,6 +33,7 @@ class MemoryTab(QWidget):
 
         opt_row = QHBoxLayout()
         self._peek_regs = QCheckBox("Register mode")
+        self._peek_regs.setToolTip("Read hardware registers instead of memory. Addresses must be 4-byte aligned.")
         opt_row.addWidget(self._peek_regs)
         opt_row.addStretch()
 
@@ -64,6 +64,7 @@ class MemoryTab(QWidget):
         poke_row.addWidget(QLabel("Data (hex):"))
         self._poke_data = QLineEdit()
         self._poke_data.setPlaceholderText("DEADBEEF")
+        self._poke_data.setToolTip("Hex bytes to write, e.g. DEADBEEF. No 0x prefix.")
         poke_row.addWidget(self._poke_data, 1)
         poke_layout.addLayout(poke_row)
 
@@ -93,6 +94,7 @@ class MemoryTab(QWidget):
 
         btn_row = QHBoxLayout()
         self._brom_btn = QPushButton("Dump BROM")
+        self._brom_btn.setToolTip("Dump the Boot ROM. Useful for exploit development and research.")
         self._brom_btn.setEnabled(False)
         btn_row.addWidget(self._brom_btn)
         self._sram_btn = QPushButton("Dump SRAM")
@@ -108,7 +110,6 @@ class MemoryTab(QWidget):
         layout.addWidget(dump_group)
 
     def _browse_dump_dir(self):
-        """Select an output directory and update the directory field when one is chosen."""
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             self._dump_dir.setText(d)
@@ -121,41 +122,26 @@ class MemoryTab(QWidget):
 
     @property
     def peek_save_button(self) -> QPushButton:
-        """Return the button used to read memory contents and save them to a file."""
         return self._peek_save_btn
 
     @property
     def poke_button(self) -> QPushButton:
-        """Return the button used to write data to memory.
-        
-        Returns:
-            QPushButton: The memory write button.
-        """
         return self._poke_btn
 
     @property
     def brom_button(self) -> QPushButton:
-        """Return the button used to initiate a BROM memory dump."""
         return self._brom_btn
 
     @property
     def sram_button(self) -> QPushButton:
-        """
-        Provide access to the SRAM dump button.
-        
-        Returns:
-        	QPushButton: The SRAM dump button.
-        """
         return self._sram_btn
 
     @property
     def dram_button(self) -> QPushButton:
-        """Return the button used to initiate a DRAM dump."""
         return self._dram_btn
 
     @property
     def memdump_button(self) -> QPushButton:
-        """Return the button used to start a full memory dump."""
         return self._memdump_btn
 
     @property
@@ -163,49 +149,31 @@ class MemoryTab(QWidget):
         return self._hex_viewer
 
     def get_peek_params(self) -> dict:
-        """
-        Parse and return the configured memory peek parameters.
-        
-        Returns:
-        	dict: A mapping containing the hexadecimal address under `"addr"`, the hexadecimal length under `"length"`, and the register-mode state under `"registers"`.
-        
-        Raises:
-        	ValueError: If the address or length contains invalid hexadecimal text.
-        """
-        return {
-            "addr": int(self._peek_addr.text() or "0", 16),
-            "length": int(self._peek_len.text() or "0", 16),
-            "registers": self._peek_regs.isChecked(),
-        }
+        """Returns params dict. Raises ValueError if addr/length are invalid."""
+        addr_text = self._peek_addr.text().strip()
+        len_text = self._peek_len.text().strip()
+        if not addr_text:
+            raise ValueError("Address is required.")
+        if not len_text:
+            raise ValueError("Length is required.")
+        addr = int(addr_text, 16)
+        length = int(len_text, 16)
+        if length <= 0:
+            raise ValueError("Length must be greater than zero.")
+        return {"addr": addr, "length": length, "registers": self._peek_regs.isChecked()}
 
     def get_poke_params(self) -> dict:
-        """
-        Retrieve the address and data values for a memory write operation.
-        
-        Returns:
-        	dict: A mapping containing the parsed hexadecimal address under `"addr"` and the trimmed data string under `"data"`.
-        """
-        return {
-            "addr": int(self._poke_addr.text() or "0", 16),
-            "data": self._poke_data.text().strip(),
-        }
+        """Returns params dict. Raises ValueError if addr is invalid."""
+        addr_text = self._poke_addr.text().strip()
+        if not addr_text:
+            raise ValueError("Address is required.")
+        return {"addr": int(addr_text, 16), "data": self._poke_data.text().strip()}
 
     @property
     def dump_directory(self) -> str:
-        """
-        Get the configured memory dump output directory.
-        
-        Returns:
-        	str: The trimmed output directory, or "." when the field is empty.
-        """
         return self._dump_dir.text().strip() or "."
 
     def set_enabled_all(self, enabled: bool):
-        """Enable or disable all memory operation controls.
-        
-        Parameters:
-        	enabled (bool): Whether the controls should be enabled.
-        """
         for btn in (self._peek_btn, self._peek_save_btn, self._poke_btn,
                      self._brom_btn, self._sram_btn, self._dram_btn, self._memdump_btn):
             btn.setEnabled(enabled)

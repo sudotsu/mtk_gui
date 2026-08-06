@@ -12,12 +12,10 @@ from mtk_gui.constants import PART_TYPES
 
 class ReadTab(QWidget):
     def __init__(self, parent=None):
-        """Initialize the read-operation controls and configure their user interface."""
         super().__init__(parent)
         self._setup_ui()
 
     def _setup_ui(self):
-        """Build the read-operation controls and connect mode selection to the corresponding content page."""
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
@@ -31,6 +29,8 @@ class ReadTab(QWidget):
             rb = QRadioButton(name)
             if i == 0:
                 rb.setChecked(True)
+            if i == 1:
+                rb.setToolTip("Dump the entire flash storage to a single file. Can be very large.")
             self._mode_group.addButton(rb, i)
             mode_layout.addWidget(rb)
         mode_layout.addStretch()
@@ -39,6 +39,7 @@ class ReadTab(QWidget):
         mode_layout.addWidget(QLabel("Part Type:"))
         self._parttype_combo = QComboBox()
         self._parttype_combo.addItems(PART_TYPES)
+        self._parttype_combo.setToolTip("Usually 'user'. Only change if you know the target storage region.")
         mode_layout.addWidget(self._parttype_combo)
 
         layout.addWidget(mode_group)
@@ -53,6 +54,7 @@ class ReadTab(QWidget):
         part_layout.addWidget(self._partition_list)
 
         self._dump_gpt_check = QCheckBox("Also dump GPT")
+        self._dump_gpt_check.setToolTip("Save the partition table alongside the partition data.")
         part_layout.addWidget(self._dump_gpt_check)
 
         dir_row = QHBoxLayout()
@@ -151,21 +153,11 @@ class ReadTab(QWidget):
         layout.addLayout(btn_row)
 
     def _browse_dir(self, target: QLineEdit):
-        """Select an output directory and populate the target line edit when a directory is chosen.
-        
-        Parameters:
-        	target (QLineEdit): Line edit to receive the selected directory path.
-        """
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             target.setText(d)
 
     def _browse_save(self, target: QLineEdit):
-        """Select an output file and update the target field when a path is chosen.
-        
-        Parameters:
-        	target (QLineEdit): Field that receives the selected output-file path.
-        """
         path, _ = QFileDialog.getSaveFileName(self, "Select Output File", "", "Binary (*.bin);;All (*)")
         if path:
             target.setText(path)
@@ -174,41 +166,20 @@ class ReadTab(QWidget):
 
     @property
     def read_button(self) -> QPushButton:
-        """Return the button used to initiate the read operation."""
         return self._read_btn
 
     @property
     def partition_list(self) -> PartitionList:
-        """Expose the partition list widget used to select partitions.
-        
-        Returns:
-        	PartitionList: The partition list widget.
-        """
         return self._partition_list
 
     def get_mode(self) -> int:
-        """Return the numeric identifier of the selected read mode.
-        
-        Returns:
-        	int: The selected read mode identifier.
-        """
         return self._mode_group.checkedId()
 
     def get_parttype(self) -> str:
-        """Return the currently selected partition type.
-        
-        Returns:
-        	str: The selected partition type.
-        """
         return self._parttype_combo.currentText()
 
     def get_read_params(self) -> dict:
-        """
-        Collect the settings for the selected read mode.
-        
-        Returns:
-        	dict: A parameter dictionary containing the selected mode and partition type, along with mode-specific values. Offset and length are parsed as hexadecimal integers, while start sector and sector count are parsed as decimal integers; empty numeric fields produce zero.
-        """
+        """Returns params dict. Raises ValueError on invalid input."""
         mode = self.get_mode()
         params = {"mode": mode, "parttype": self.get_parttype()}
         if mode == 0:
@@ -216,13 +187,40 @@ class ReadTab(QWidget):
             params["directory"] = self._part_dir_input.text()
             params["dump_gpt"] = self._dump_gpt_check.isChecked()
         elif mode == 1:
-            params["filename"] = self._flash_file_input.text()
+            filename = self._flash_file_input.text().strip()
+            if not filename:
+                raise ValueError("Output filename is required for full flash read.")
+            params["filename"] = filename
         elif mode == 2:
-            params["offset"] = int(self._offset_input.text() or "0", 16)
-            params["length"] = int(self._offset_len_input.text() or "0", 16)
-            params["filename"] = self._offset_file_input.text()
+            offset_text = self._offset_input.text().strip()
+            len_text = self._offset_len_input.text().strip()
+            filename = self._offset_file_input.text().strip()
+            if not offset_text:
+                raise ValueError("Offset is required.")
+            if not len_text:
+                raise ValueError("Length is required.")
+            if not filename:
+                raise ValueError("Output filename is required.")
+            length = int(len_text, 16)
+            if length <= 0:
+                raise ValueError("Length must be greater than zero.")
+            params["offset"] = int(offset_text, 16)
+            params["length"] = length
+            params["filename"] = filename
         elif mode == 3:
-            params["start"] = int(self._sector_start_input.text() or "0")
-            params["sectors"] = int(self._sector_count_input.text() or "0")
-            params["filename"] = self._sector_file_input.text()
+            start_text = self._sector_start_input.text().strip()
+            count_text = self._sector_count_input.text().strip()
+            filename = self._sector_file_input.text().strip()
+            if not start_text:
+                raise ValueError("Start sector is required.")
+            if not count_text:
+                raise ValueError("Sector count is required.")
+            if not filename:
+                raise ValueError("Output filename is required.")
+            sectors = int(count_text)
+            if sectors <= 0:
+                raise ValueError("Sector count must be greater than zero.")
+            params["start"] = int(start_text)
+            params["sectors"] = sectors
+            params["filename"] = filename
         return params

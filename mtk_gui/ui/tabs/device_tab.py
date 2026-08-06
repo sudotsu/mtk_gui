@@ -52,10 +52,12 @@ class DeviceTab(QWidget):
         status_layout.addStretch()
 
         self._connect_btn = QPushButton("Connect")
+        self._connect_btn.setToolTip("Initialize connection through preloader and load the Download Agent.")
         self._connect_btn.setFixedWidth(100)
         status_layout.addWidget(self._connect_btn)
 
         self._disconnect_btn = QPushButton("Disconnect")
+        self._disconnect_btn.setToolTip("Cleanly disconnect from the device.")
         self._disconnect_btn.setFixedWidth(100)
         self._disconnect_btn.setEnabled(False)
         status_layout.addWidget(self._disconnect_btn)
@@ -105,6 +107,7 @@ class DeviceTab(QWidget):
         settings_grid.addWidget(QLabel("DA Loader:"), 0, 0)
         self._da_loader_input = QLineEdit()
         self._da_loader_input.setPlaceholderText("(auto-detect)")
+        self._da_loader_input.setToolTip("Custom DA binary. Leave empty to use the built-in one.")
         settings_grid.addWidget(self._da_loader_input, 0, 1)
         da_browse = QPushButton("Browse")
         da_browse.setFixedWidth(70)
@@ -115,6 +118,7 @@ class DeviceTab(QWidget):
         settings_grid.addWidget(QLabel("Preloader:"), 1, 0)
         self._preloader_input = QLineEdit()
         self._preloader_input.setPlaceholderText("(optional)")
+        self._preloader_input.setToolTip("Provide a preloader binary if auto-detection fails.")
         settings_grid.addWidget(self._preloader_input, 1, 1)
         pl_browse = QPushButton("Browse")
         pl_browse.setFixedWidth(70)
@@ -131,6 +135,7 @@ class DeviceTab(QWidget):
         # Working directory
         settings_grid.addWidget(QLabel("Working Dir:"), 3, 0)
         self._workdir_input = QLineEdit(".")
+        self._workdir_input.setToolTip("Directory for output files, keys, and logs.")
         settings_grid.addWidget(self._workdir_input, 3, 1)
         wd_browse = QPushButton("Browse")
         wd_browse.setFixedWidth(70)
@@ -140,8 +145,10 @@ class DeviceTab(QWidget):
         # Checkboxes
         cb_row = QHBoxLayout()
         self._iot_check = QCheckBox("IoT Mode")
+        self._iot_check.setToolTip("Use IoT DA. Required for some low-end MediaTek chipsets.")
         cb_row.addWidget(self._iot_check)
         self._stock_check = QCheckBox("Stock DA")
+        self._stock_check.setToolTip("Use the stock (unpatched) Download Agent. Disables exploit features.")
         cb_row.addWidget(self._stock_check)
         cb_row.addStretch()
         settings_grid.addLayout(cb_row, 4, 0, 1, 3)

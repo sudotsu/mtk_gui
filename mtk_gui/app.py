@@ -23,10 +23,13 @@ def get_plugin_dirs() -> list:
     dirs.append(os.path.join(app_dir, "plugins"))
     # User config plugins dir
     if sys.platform == "win32":
-        config_dir = os.path.join(os.environ.get("APPDATA", ""), "mtk-gui", "plugins")
+        appdata = os.environ.get("APPDATA")
+        if appdata and os.path.isabs(appdata):
+            dirs.append(os.path.join(appdata, "mtk-gui", "plugins"))
     else:
         config_dir = os.path.join(os.path.expanduser("~"), ".config", "mtk-gui", "plugins")
-    dirs.append(config_dir)
+        if os.path.isabs(config_dir):
+            dirs.append(config_dir)
     return dirs
 
 

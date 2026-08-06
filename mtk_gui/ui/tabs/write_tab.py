@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtk_gui.constants import PART_TYPES
+from mtk_gui.ui.widgets.dismissable_banner import DismissableBanner
 
 
 class WriteTab(QWidget):
@@ -22,12 +23,11 @@ class WriteTab(QWidget):
         layout.setSpacing(8)
 
         # Warning banner
-        warn = QLabel("WARNING: Writing to flash is destructive. Ensure you have backups.")
-        warn.setStyleSheet(
-            "background-color: #442200; color: #ffaa44; padding: 6px; "
-            "border: 1px solid #cc8844; border-radius: 3px; font-weight: bold;"
+        warn = DismissableBanner(
+            "WARNING: Writing to flash is destructive. Ensure you have backups.",
+            banner_type="warning",
+            settings_key="banner/write_warning",
         )
-        warn.setWordWrap(True)
         layout.addWidget(warn)
 
         # ── Mode selector ─────────────────────────────────
@@ -47,6 +47,7 @@ class WriteTab(QWidget):
         mode_layout.addWidget(QLabel("Part Type:"))
         self._parttype_combo = QComboBox()
         self._parttype_combo.addItems(PART_TYPES)
+        self._parttype_combo.setToolTip("Usually 'user'. Only change if you know the target storage region.")
         mode_layout.addWidget(self._parttype_combo)
 
         layout.addWidget(mode_group)
@@ -60,6 +61,7 @@ class WriteTab(QWidget):
 
         self._part_tree = QTreeWidget()
         self._part_tree.setHeaderLabels(["Partition", "File"])
+        self._part_tree.setToolTip("Double-click the File column to select a file for each partition.")
         self._part_tree.setRootIsDecorated(False)
         header = self._part_tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)

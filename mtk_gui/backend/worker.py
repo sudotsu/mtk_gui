@@ -3,18 +3,18 @@ import traceback
 from PySide6.QtCore import QThread, Signal
 
 
-class OperationAborted(Exception):
-    """Raised when a library call hits sys.exit() (monkey-patched)."""
-
-
 class Worker(QThread):
-    """Runs a callable in a background thread, emitting progress and result signals."""
+    """Runs a callable in a background thread, emitting progress and result signals.
+
+    Guarantees exactly one terminal signal is emitted: finished, error, or cancelled.
+    """
 
     progress = Signal(int, int)       # current, total
     log_message = Signal(str, int)    # message, level
     status_text = Signal(str)
     finished = Signal(object)         # result (any)
     error = Signal(str)               # error message
+    cancelled = Signal()              # emitted if cancelled before result
 
     def __init__(self, func, *args, **kwargs):
         """
@@ -48,10 +48,12 @@ class Worker(QThread):
         """Execute the worker function and emit its result or an error message."""
         try:
             result = self._func(*self._args, worker=self, **self._kwargs)
-            if not self._cancelled:
+            if self._cancelled:
+                self.cancelled.emit()
+            else:
                 self.finished.emit(result)
-        except OperationAborted:
-            self.error.emit("Operation aborted by library.")
+        except SystemExit as e:
+            self.error.emit(f"Operation aborted (sys.exit({e.code})).")
         except Exception as e:
             tb = traceback.format_exc()
             self.error.emit(f"{e}\n{tb}")

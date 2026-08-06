@@ -17,6 +17,7 @@ class EfuseTab(QWidget):
 
         btn_row = QHBoxLayout()
         self._read_btn = QPushButton("Read eFuses")
+        self._read_btn.setToolTip("Read one-time-programmable fuse values. These cannot be modified.")
         self._read_btn.setFixedWidth(140)
         self._read_btn.setEnabled(False)
         btn_row.addWidget(self._read_btn)

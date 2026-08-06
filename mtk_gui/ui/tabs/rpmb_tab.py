@@ -84,6 +84,7 @@ class RpmbTab(QWidget):
         erase_layout = QHBoxLayout(erase_group)
         erase_layout.addStretch()
         self._erase_btn = QPushButton("Erase RPMB")
+        self._erase_btn.setToolTip("Wipe all RPMB data. Only works on xflash/xml-mode devices.")
         self._erase_btn.setProperty("destructive", True)
         self._erase_btn.setEnabled(False)
         erase_layout.addWidget(self._erase_btn)
@@ -95,6 +96,7 @@ class RpmbTab(QWidget):
         auth_layout.addWidget(QLabel("Auth Key (32-byte hex):"))
         self._auth_key = QLineEdit()
         self._auth_key.setPlaceholderText("00" * 32)
+        self._auth_key.setToolTip("32-byte RPMB authentication key in hex. Required for authenticated RPMB access.")
         auth_layout.addWidget(self._auth_key, 1)
         layout.addWidget(auth_group)
 
@@ -142,6 +144,26 @@ class RpmbTab(QWidget):
             QPushButton: The RPMB erase button.
         """
         return self._erase_btn
+
+    def get_read_params(self) -> dict:
+        return {
+            "filename": self._read_file.text().strip() or None,
+            "sector": self._read_sector.text().strip() or None,
+            "sectors": self._read_sectors.text().strip() or None,
+        }
+
+    def get_write_params(self) -> dict:
+        """Returns write params. Raises ValueError on invalid input."""
+        filename = self._write_file.text().strip()
+        if not filename:
+            raise ValueError("Input file is required for RPMB write.")
+        sector_text = self._write_sector.text().strip()
+        sectors_text = self._write_sectors.text().strip()
+        return {
+            "filename": filename,
+            "sector": int(sector_text) if sector_text else 0,
+            "sectors": int(sectors_text) if sectors_text else None,
+        }
 
     def set_enabled_all(self, enabled: bool):
         """

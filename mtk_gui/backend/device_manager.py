@@ -1,11 +1,10 @@
 """Connection state machine and USB polling."""
 import logging
 import threading
-import time
 from enum import Enum, auto
 from typing import Optional
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Signal
 
 from mtk_gui.backend.log_interceptor import LogSignalEmitter, GuiSignalProxy
 from mtk_gui.backend.mtk_wrapper import MtkWrapper, DeviceInfo
@@ -38,6 +37,7 @@ class DeviceManager(QObject):
         self._wrapper: Optional[MtkWrapper] = None
         self._device_info = DeviceInfo()
         self._workers: list[Worker] = []
+        self._shutting_down = False
 
         # Log signal bridge
         self._log_emitter = LogSignalEmitter()
@@ -60,35 +60,17 @@ class DeviceManager(QObject):
 
     @property
     def state(self) -> DeviceState:
-        """
-        Get the device manager's current connection state.
-        
-        Returns:
-            DeviceState: The current device connection state.
-        """
         return self._state
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return information about the currently connected device."""
         return self._device_info
 
     @property
     def wrapper(self) -> Optional[MtkWrapper]:
-        """
-        Provide the current MediaTek device wrapper.
-        
-        Returns:
-        	MtkWrapper or None: The active wrapper, or None if no wrapper is configured.
-        """
         return self._wrapper
 
     def _set_state(self, new_state: DeviceState):
-        """Update the manager's state and emit a change notification when it changes.
-        
-        Parameters:
-        	new_state (DeviceState): The state to assign to the manager.
-        """
         if new_state != self._state:
             self._state = new_state
             self.state_changed.emit(new_state)
@@ -103,13 +85,14 @@ class DeviceManager(QObject):
         self._poll_thread.start()
 
     def stop_polling(self):
-        """Stop USB device polling."""
+        """Stop USB device polling and wait for thread to exit."""
         self._poll_stop.set()
+        if self._poll_thread and self._poll_thread.is_alive():
+            self._poll_thread.join(timeout=2.0)
+        self._poll_thread = None
 
     def _poll_usb_loop(self):
-        """
-        Poll for a configured MediaTek USB preloader device until one is detected or polling is stopped.
-        """
+        """Background thread: poll USB until device found or stopped."""
         try:
             import usb.core
             from mtk_gui.constants import MTK_USB_VID, MTK_PRELOADER_PIDS
@@ -135,11 +118,9 @@ class DeviceManager(QObject):
             self._poll_stop.wait(interval)
 
     def _on_usb_detected(self, pid: int):
-        """Update the device state and log the detected MediaTek USB device.
-        
-        Parameters:
-        	pid (int): Product ID of the detected USB device.
-        """
+        """Handle USB detection on the main thread (via signal)."""
+        if self._shutting_down:
+            return
         from mtk_gui.constants import MTK_USB_VID
         self._set_state(DeviceState.PRELOADER)
         self.log_message.emit(
@@ -170,12 +151,7 @@ class DeviceManager(QObject):
         worker.start()
 
     def _do_connect(self, worker=None):
-        """
-        Initialize the device wrapper and attempt to connect to the device.
-        
-        Returns:
-        	bool: `True` if the connection succeeds, `False` otherwise.
-        """
+        """Run connection in worker thread."""
         self._wrapper.init(
             preloader=self.preloader_path,
             loader=self.da_loader_path,
@@ -188,11 +164,6 @@ class DeviceManager(QObject):
         return success
 
     def _on_connect_finished(self, success):
-        """Update the device state and emit connection results after a connection attempt completes.
-        
-        Parameters:
-        	success (bool): Whether the device connection succeeded.
-        """
         if success:
             self._device_info = self._wrapper.get_device_info()
             self._set_state(DeviceState.CONNECTED)
@@ -203,11 +174,6 @@ class DeviceManager(QObject):
             self.log_message.emit("Connection failed.", logging.ERROR)
 
     def _on_connect_error(self, msg: str):
-        """Set the device state to error and emit the connection error message.
-        
-        Parameters:
-        	msg (str): Description of the connection error.
-        """
         self._set_state(DeviceState.ERROR)
         self.log_message.emit(f"Connection error: {msg}", logging.ERROR)
 
@@ -221,8 +187,12 @@ class DeviceManager(QObject):
         self._set_state(DeviceState.DISCONNECTED)
         self.device_info_updated.emit(self._device_info)
         self.log_message.emit("Device disconnected.", logging.INFO)
-        # Resume polling for next device
-        self.start_polling()
+        if not self._shutting_down:
+            self.start_polling()
+
+    def begin_shutdown(self):
+        """Called during app close — prevents post-shutdown side effects."""
+        self._shutting_down = True
 
     def create_worker(self, func, *args, **kwargs) -> Worker:
         """Create and track a worker for a backend operation."""
@@ -231,18 +201,19 @@ class DeviceManager(QObject):
         return w
 
     def _track_worker(self, worker: Worker):
-        """Track a worker and remove it from the active worker list when it finishes or reports an error."""
         self._workers.append(worker)
         worker.finished.connect(lambda _: self._untrack_worker(worker))
         worker.error.connect(lambda _: self._untrack_worker(worker))
+        worker.cancelled.connect(lambda: self._untrack_worker(worker))
 
     def _untrack_worker(self, worker: Worker):
-        """Remove a worker from the active worker list."""
         if worker in self._workers:
             self._workers.remove(worker)
 
     def _cancel_all_workers(self):
-        """Cancel all active workers and clear the worker registry."""
         for w in list(self._workers):
             w.cancel()
+        # Wait briefly for workers to finish
+        for w in list(self._workers):
+            w.wait(2000)
         self._workers.clear()

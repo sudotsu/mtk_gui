@@ -29,6 +29,7 @@ class ServerTab(QWidget):
 
         btn_row = QHBoxLayout()
         self._run_btn = QPushButton("Run Key Server")
+        self._run_btn.setToolTip("Run the mtkclient key exchange. Completes automatically when done.")
         self._run_btn.setProperty("success", True)
         self._run_btn.setEnabled(False)
         btn_row.addWidget(self._run_btn)

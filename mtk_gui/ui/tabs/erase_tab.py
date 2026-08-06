@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QRadioButton, QButtonGroup,
 )
 
+from mtk_gui.ui.widgets.dismissable_banner import DismissableBanner
 from mtk_gui.ui.widgets.partition_list import PartitionList
 from mtk_gui.constants import PART_TYPES
 
@@ -26,12 +27,11 @@ class EraseTab(QWidget):
         layout.setSpacing(8)
 
         # Warning
-        warn = QLabel("WARNING: Erasing partitions is irreversible. Data will be permanently lost.")
-        warn.setStyleSheet(
-            "background-color: #440000; color: #ff4444; padding: 6px; "
-            "border: 1px solid #cc4444; border-radius: 3px; font-weight: bold;"
+        warn = DismissableBanner(
+            "WARNING: Erasing partitions is irreversible. Data will be permanently lost.",
+            banner_type="danger",
+            settings_key="banner/erase_warning",
         )
-        warn.setWordWrap(True)
         layout.addWidget(warn)
 
         # Mode selector
@@ -50,6 +50,7 @@ class EraseTab(QWidget):
         mode_layout.addWidget(QLabel("Part Type:"))
         self._parttype_combo = QComboBox()
         self._parttype_combo.addItems(PART_TYPES)
+        self._parttype_combo.setToolTip("Usually 'user'. Only change if you know the target storage region.")
         mode_layout.addWidget(self._parttype_combo)
 
         layout.addWidget(mode_group)
@@ -87,6 +88,7 @@ class EraseTab(QWidget):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._erase_btn = QPushButton("Erase")
+        self._erase_btn.setToolTip("Permanently destroys data. Cannot be undone.")
         self._erase_btn.setFixedWidth(120)
         self._erase_btn.setProperty("destructive", True)
         self._erase_btn.setEnabled(False)

@@ -22,15 +22,18 @@ class BootloaderTab(QWidget):
         bl_layout = QVBoxLayout(bl_group)
 
         self._critical_check = QCheckBox("Critical mode (use with caution)")
+        self._critical_check.setToolTip("Also unlock critical partitions (e.g. preloader). Risk of hard-brick if misused.")
         bl_layout.addWidget(self._critical_check)
 
         btn_row = QHBoxLayout()
         self._unlock_btn = QPushButton("Unlock Bootloader")
+        self._unlock_btn.setToolTip("Remove bootloader lock via seccfg. Required for flashing custom ROMs.")
         self._unlock_btn.setProperty("destructive", True)
         self._unlock_btn.setEnabled(False)
         btn_row.addWidget(self._unlock_btn)
 
         self._lock_btn = QPushButton("Lock Bootloader")
+        self._lock_btn.setToolTip("Re-lock the bootloader. Some OTA updates require a locked bootloader.")
         self._lock_btn.setProperty("destructive", True)
         self._lock_btn.setEnabled(False)
         btn_row.addWidget(self._lock_btn)
@@ -46,6 +49,7 @@ class BootloaderTab(QWidget):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("Patch Mode:"))
         self._vbmeta_mode = QComboBox()
+        self._vbmeta_mode.setToolTip("Mode 3 (both) is the most common choice for custom ROM installs.")
         self._vbmeta_mode.addItem("Disable verity + verify", 3)
         self._vbmeta_mode.addItem("Disable verity only", 1)
         self._vbmeta_mode.addItem("Disable verify only", 2)
@@ -54,6 +58,7 @@ class BootloaderTab(QWidget):
 
         vb_btn_row = QHBoxLayout()
         self._vbmeta_btn = QPushButton("Patch vbmeta")
+        self._vbmeta_btn.setToolTip("Disables Android Verified Boot checks. Needed for rooted or modified system images.")
         self._vbmeta_btn.setProperty("destructive", True)
         self._vbmeta_btn.setEnabled(False)
         vb_btn_row.addWidget(self._vbmeta_btn)
