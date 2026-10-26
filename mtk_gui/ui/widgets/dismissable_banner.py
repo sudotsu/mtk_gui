@@ -1,5 +1,5 @@
 """Dismissable banner widget — colored warning/info message with persistent close."""
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Signal
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 
 
@@ -28,15 +28,23 @@ class DismissableBanner(QWidget):
         ``"warning"`` or ``"danger"`` — selects the color scheme.
     settings_key : str
         QSettings key used to persist the dismissed state.
+    dismissable : bool
+        Whether to show the close button.
+    action_text : str
+        Optional label for an action button that emits ``action_requested``.
     parent : QWidget | None
         Parent widget.
     """
+
+    action_requested = Signal()
 
     def __init__(
         self,
         message: str,
         banner_type: str = "warning",
         settings_key: str = "",
+        dismissable: bool = True,
+        action_text: str = "",
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -61,23 +69,33 @@ class DismissableBanner(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
 
-        label = QLabel(message)
-        label.setWordWrap(True)
-        label.setStyleSheet(
+        self._label = QLabel(message)
+        self._label.setWordWrap(True)
+        self._label.setStyleSheet(
             f"color: {style['color']}; font-weight: bold; "
             "border: none; background: transparent;"
         )
-        layout.addWidget(label, 1)
+        layout.addWidget(self._label, 1)
 
-        close_btn = QPushButton("\u00d7")
-        close_btn.setFixedSize(20, 20)
-        close_btn.setCursor(self.cursor())
-        close_btn.setStyleSheet(
-            f"color: {style['color']}; background: transparent; "
-            "border: none; font-weight: bold; font-size: 14px;"
-        )
-        close_btn.clicked.connect(self._dismiss)
-        layout.addWidget(close_btn)
+        if action_text:
+            action_btn = QPushButton(action_text)
+            action_btn.clicked.connect(self.action_requested)
+            layout.addWidget(action_btn)
+
+        if dismissable:
+            close_btn = QPushButton("\u00d7")
+            close_btn.setFixedSize(20, 20)
+            close_btn.setCursor(self.cursor())
+            close_btn.setStyleSheet(
+                f"color: {style['color']}; background: transparent; "
+                "border: none; font-weight: bold; font-size: 14px;"
+            )
+            close_btn.clicked.connect(self._dismiss)
+            layout.addWidget(close_btn)
+
+    def set_message(self, message: str):
+        """Replace the banner text without rebuilding the widget."""
+        self._label.setText(message)
 
     def _dismiss(self):
         self.setVisible(False)

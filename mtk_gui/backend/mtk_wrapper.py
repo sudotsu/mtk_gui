@@ -2,6 +2,8 @@
 import logging
 import math
 import os
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -9,6 +11,21 @@ from mtkclient.Library.DA.mtk_da_handler import DaHandler
 from mtkclient.Library.mtk_class import Mtk
 from mtkclient.config.mtk_config import MtkConfig
 from mtkclient.Library.DA.mtk_daloader import DAloader
+
+from mtk_gui.backend.windows_usb import select_mtk_usb_backend
+from mtk_gui.constants import CONNECTION_TIMEOUT_SECONDS
+
+
+class ConnectionCancelled(RuntimeError):
+    """Raised when the user stops an in-progress connection attempt."""
+
+
+class ConnectionBusyError(RuntimeError):
+    """Raised when another process already owns the selected serial port."""
+
+
+class ConnectionTimeoutError(RuntimeError):
+    """Raised when a detected device does not complete its handshake in time."""
 
 
 @dataclass
@@ -41,7 +58,8 @@ class MtkWrapper:
     """Wraps mtkclient init/connect and all DA operations.
 
     All methods catch SystemExit (which mtkclient raises via sys.exit)
-    and convert it to a controlled failure — no global monkey-patching.
+    and convert it to a controlled failure. Connection guards are installed on
+    this wrapper's mtkclient instance only; package-global behavior is untouched.
     """
 
     def __init__(self, gui_signal=None, gui_progress=None, status_signal=None):
@@ -51,6 +69,9 @@ class MtkWrapper:
         self._gui_signal = gui_signal
         self._gui_progress = gui_progress
         self._status_signal = status_signal
+        self.transport_backend: Optional[str] = None
+        self._cancel_event = threading.Event()
+        self._connect_deadline: Optional[float] = None
 
     def init(self, preloader: str = None, loader: str = None,
              serial_port: str = None, iot: bool = False,
@@ -74,28 +95,192 @@ class MtkWrapper:
                 self.config.preloader = f.read()
 
         self.mtk = Mtk(config=self.config, loglevel=loglevel, serialportname=serial_port)
+        self.transport_backend = select_mtk_usb_backend(self.mtk)
+        self._install_connection_guards()
         return self.mtk
 
-    def connect(self, work_dir: str = ".") -> bool:
-        """Connect to device via DA. Returns True on success."""
+    def connect_preloader(self, work_dir: str = ".") -> bool:
+        """Complete the Preloader handshake without requiring a working DA."""
         if self.mtk is None:
             return False
+        self._connect_deadline = time.monotonic() + CONNECTION_TIMEOUT_SECONDS
         try:
             self.da_handler = DaHandler(self.mtk, logging.INFO)
             mtk = self.da_handler.connect(self.mtk, work_dir)
             if mtk is None:
                 return False
             self.mtk = mtk
-            self.mtk = self.da_handler.configure_da(self.mtk)
             return True
         except SystemExit:
             return False
 
+    def configure_da(self) -> bool:
+        """Select, upload, and initialize the Download Agent."""
+        if self.mtk is None or self.da_handler is None:
+            return False
+        self._raise_if_cancelled_or_timed_out(check_timeout=False)
+        try:
+            mtk = self.da_handler.configure_da(self.mtk)
+            if mtk is None:
+                return False
+            self.mtk = mtk
+            return True
+        except SystemExit:
+            return False
+
+    def connect(self, work_dir: str = ".") -> bool:
+        """Connect through Preloader and then initialize a DA."""
+        return self.connect_preloader(work_dir) and self.configure_da()
+
+    def request_cancel(self):
+        """Interrupt a pending connection and release its device handle."""
+        self._cancel_event.set()
+        self._close_port()
+
     def disconnect(self):
         """Clean up connection state."""
+        self.request_cancel()
         self.da_handler = None
         self.mtk = None
         self.config = None
+
+    def _close_port(self):
+        if self.mtk is None:
+            return
+        try:
+            self.mtk.port.close()
+        except Exception:
+            pass
+
+    def _raise_if_cancelled_or_timed_out(self, check_timeout: bool = True):
+        if self._cancel_event.is_set():
+            raise ConnectionCancelled("Connection attempt stopped by user.")
+        if (
+            check_timeout
+            and self._connect_deadline is not None
+            and time.monotonic() >= self._connect_deadline
+        ):
+            raise ConnectionTimeoutError(
+                f"The Preloader handshake did not complete within "
+                f"{CONNECTION_TIMEOUT_SECONDS} seconds."
+            )
+
+    @staticmethod
+    def _is_port_busy_error(error: Exception) -> bool:
+        message = str(error).lower()
+        return (
+            getattr(error, "winerror", None) == 170
+            or "resource is in use" in message
+            or "winerror 170" in message
+        )
+
+    def _install_connection_guards(self):
+        """Bound mtkclient's retry loops and make them cooperatively stoppable."""
+        if self.mtk is None:
+            return
+
+        port = self.mtk.port
+        guarded_io = {}
+        for name in (
+            "usbread",
+            "usbwrite",
+            "usbreadwrite",
+            "echo",
+            "rbyte",
+            "rword",
+            "rdword",
+        ):
+            original = getattr(port, name, None)
+            if original is None:
+                continue
+
+            def make_guarded_io(io_func):
+                def call(*args, **kwargs):
+                    self._raise_if_cancelled_or_timed_out(check_timeout=False)
+                    result = io_func(*args, **kwargs)
+                    self._raise_if_cancelled_or_timed_out(check_timeout=False)
+                    return result
+
+                return call
+
+            guarded_io[name] = make_guarded_io(original)
+            setattr(port, name, guarded_io[name])
+
+        # mtkclient copies these callables into the Preloader, DAloader, and
+        # DAconfig during construction. Replacing Port.usbread alone therefore
+        # does not affect the XML DA loop that waits for CMD:START. Rebind all
+        # already-created consumers so closing the port makes the very next I/O
+        # boundary raise ConnectionCancelled instead of spinning on b"".
+        cached_consumers = [
+            getattr(self.mtk, "preloader", None),
+            getattr(self.mtk, "daloader", None),
+            getattr(getattr(self.mtk, "daloader", None), "daconfig", None),
+        ]
+        for consumer in cached_consumers:
+            if consumer is None:
+                continue
+            for name, guarded in guarded_io.items():
+                if hasattr(consumer, name):
+                    setattr(consumer, name, guarded)
+
+        original_handshake = port.handshake
+        original_serial_handshake = port.serial_handshake
+
+        def guarded_wait_for_device(max_attempts=300, interval=2, wait=True):
+            self._raise_if_cancelled_or_timed_out()
+            try:
+                port.cdc.connected = port.cdc.connect()
+            except Exception as error:
+                if self._is_port_busy_error(error):
+                    port_name = getattr(port.cdc, "portname", None) or "The selected port"
+                    raise ConnectionBusyError(
+                        f"{port_name} is already in use by another application. "
+                        "Close the other phone tool and retry."
+                    ) from error
+                port.warning(f"Device enumeration failed: {error}")
+                port.cdc.connected = False
+            return bool(port.cdc.connected)
+
+        def guarded_handshake(maxtries=None, loop=0):
+            self._raise_if_cancelled_or_timed_out()
+            return original_handshake(maxtries=1, loop=loop)
+
+        def bounded_run_serial_handshake():
+            """Run one bounded serial handshake instead of retrying forever."""
+            cdc = port.cdc
+            start_command = b"\xa0\x0a\x50\x05"
+            byte_index = 0
+            failed_cycles = 0
+
+            while byte_index < len(start_command) and failed_cycles < 8:
+                self._raise_if_cancelled_or_timed_out()
+                value = start_command[byte_index]
+                try:
+                    wrote = cdc.write(bytes([value]))
+                    response = cdc.read(1, timeout=20) if wrote else b""
+                except Exception:
+                    response = b""
+
+                if len(response) == 1 and response[0] == (~value & 0xFF):
+                    byte_index += 1
+                    continue
+
+                byte_index = 0
+                failed_cycles += 1
+
+            if byte_index == len(start_command):
+                port.info("Device detected :)")
+                return True
+            return False
+
+        def guarded_serial_handshake(maxtries=None, loop=0):
+            self._raise_if_cancelled_or_timed_out()
+            return original_serial_handshake(maxtries=1, loop=loop)
+
+        port.wait_for_device = guarded_wait_for_device
+        port.handshake = guarded_handshake
+        port.run_serial_handshake = bounded_run_serial_handshake
+        port.serial_handshake = guarded_serial_handshake
 
     def get_device_info(self) -> DeviceInfo:
         """Gather device info from current connection."""
@@ -323,13 +508,40 @@ class MtkWrapper:
 
     # ── Memory operations ─────────────────────────────────
 
-    def peek(self, addr: int, length: int, filename: str = "",
+    def peek(self, addr: int, length: int, filename: Optional[str] = None,
              registers: bool = False, worker=None):
-        """Read memory at address."""
-        if self.da_handler is None:
+        """Read memory at address, returning bytes or writing them to a file."""
+        if self.mtk is None or not hasattr(self.mtk, "daloader"):
             return None
         try:
-            return self.da_handler.da_peek(addr, length, filename, registers)
+            remaining = length
+            position = 0
+            chunks = []
+            output = open(filename, "wb") if filename else None
+            try:
+                while remaining > 0:
+                    if worker is not None and worker.is_cancelled:
+                        raise ConnectionCancelled("Memory read stopped by user.")
+                    request_size = min(remaining, 0x20000)
+                    data = self.mtk.daloader.peek(
+                        addr=addr + position,
+                        length=request_size,
+                        registers=registers,
+                    )
+                    if not data:
+                        raise RuntimeError(
+                            f"Memory read returned no data at 0x{addr + position:X}."
+                        )
+                    if output is not None:
+                        output.write(data)
+                    else:
+                        chunks.append(bytes(data))
+                    position += len(data)
+                    remaining -= len(data)
+            finally:
+                if output is not None:
+                    output.close()
+            return True if filename else b"".join(chunks)
         except SystemExit:
             return None
 

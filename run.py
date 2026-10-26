@@ -3,6 +3,10 @@
 import sys
 import os
 
+from mtk_gui.backend.stdio_bridge import install_windowed_streams
+
+install_windowed_streams()
+
 # Ensure our package dir is first so mtkclient's mtk_gui.py doesn't shadow us
 app_dir = os.path.dirname(os.path.abspath(__file__))
 if app_dir not in sys.path:

@@ -14,6 +14,7 @@ from mtk_gui.backend.device_manager import DeviceManager, DeviceState
 from mtk_gui.ui.widgets.log_panel import LogPanel
 from mtk_gui.ui.widgets.progress_panel import ProgressPanel
 from mtk_gui.ui.widgets.confirmation_dialog import ConfirmationDialog
+from mtk_gui.ui.widgets.dismissable_banner import DismissableBanner
 
 # Tabs
 from mtk_gui.ui.tabs.device_tab import DeviceTab
@@ -40,6 +41,7 @@ class MainWindow(QMainWindow):
         self._current_theme = self._settings.value("theme", DEFAULT_THEME)
         self._plugins = []
         self._last_peek_addr = 0
+        self._operation_active = False
 
         # Backend
         self.device_manager = DeviceManager(self)
@@ -87,7 +89,23 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._efuse_tab, "eFuse")
         self._tabs.addTab(self._server_tab, "Server")
 
-        splitter.addWidget(self._tabs)
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(4)
+
+        self._connection_notice = DismissableBanner(
+            "Connect a device and initialize a compatible Download Agent "
+            "before using device-operation tabs.",
+            banner_type="warning",
+            dismissable=False,
+            action_text="Open Device tab",
+        )
+        self._connection_notice.setVisible(False)
+        top_layout.addWidget(self._connection_notice)
+        top_layout.addWidget(self._tabs, 1)
+
+        splitter.addWidget(top)
 
         # Bottom panel: progress + log
         bottom = QWidget()
@@ -149,10 +167,14 @@ class MainWindow(QMainWindow):
         dm.progress_update.connect(self._progress_panel.update_progress)
         dm.status_update.connect(self._progress_panel.set_status)
         dm.status_update.connect(self.statusBar().showMessage)
+        dm.operation_activity_changed.connect(self._on_operation_activity_changed)
 
         # Device tab buttons
         self._device_tab.connect_button.clicked.connect(self._on_connect)
         self._device_tab.disconnect_button.clicked.connect(self._on_disconnect)
+        self._connection_notice.action_requested.connect(
+            lambda: self._tabs.setCurrentIndex(0))
+        self._tabs.currentChanged.connect(self._update_connection_notice)
 
         # Read tab
         self._read_tab.read_button.clicked.connect(self._on_read)
@@ -175,6 +197,7 @@ class MainWindow(QMainWindow):
 
         # Memory tab
         self._memory_tab.peek_button.clicked.connect(self._on_peek)
+        self._memory_tab.peek_save_button.clicked.connect(self._on_peek_to_file)
         self._memory_tab.poke_button.clicked.connect(self._on_poke)
         self._memory_tab.brom_button.clicked.connect(self._on_dump_brom)
 
@@ -220,31 +243,39 @@ class MainWindow(QMainWindow):
         dm.connect_device()
 
     def _on_disconnect(self):
-        self.device_manager.disconnect_device()
-        self._progress_panel.reset()
+        state = self.device_manager.state
+        if state in (
+            DeviceState.DETECTING,
+            DeviceState.PRELOADER,
+            DeviceState.HANDSHAKING,
+            DeviceState.PRELOADER_CONNECTED,
+            DeviceState.CONNECTING_DA,
+            DeviceState.CANCELLING,
+        ):
+            self.device_manager.cancel_connection()
+            self._progress_panel.set_status("Stopping connection attempt...")
+        else:
+            self.device_manager.disconnect_device()
+            self._progress_panel.reset()
 
     def _on_state_changed(self, state: DeviceState):
         self._device_tab.update_connection_state(state)
         connected = state == DeviceState.CONNECTED
 
         # Enable/disable operation tabs
-        self._read_tab.read_button.setEnabled(connected)
-        self._write_tab.write_button.setEnabled(connected)
-        self._erase_tab.erase_button.setEnabled(connected)
-        self._keys_tab.generate_button.setEnabled(connected)
-        self._bootloader_tab.unlock_button.setEnabled(connected)
-        self._bootloader_tab.lock_button.setEnabled(connected)
-        self._bootloader_tab.vbmeta_button.setEnabled(connected)
-        self._memory_tab.set_enabled_all(connected)
-        self._rpmb_tab.set_enabled_all(connected)
-        self._imei_tab.set_enabled_all(connected)
-        self._exploit_tab.set_enabled_all(connected)
-        self._efuse_tab.read_button.setEnabled(connected)
-        self._server_tab.start_button.setEnabled(connected)
+        self._set_operation_controls_enabled(connected and not self._operation_active)
+        self._update_connection_notice()
 
-        if state == DeviceState.CONNECTED:
+        if state == DeviceState.PRELOADER:
+            # Auto-connect when preloader is detected
+            self._on_connect()
+        elif state == DeviceState.CONNECTED:
             self._progress_panel.finish("Connected")
             self._load_partitions()
+        elif state == DeviceState.DA_UNAVAILABLE:
+            self._progress_panel.finish("Preloader connected; DA unavailable")
+        elif state == DeviceState.DISCONNECTED:
+            self._progress_panel.reset()
         elif state == DeviceState.ERROR:
             self._progress_panel.finish("Connection failed")
 
@@ -260,6 +291,65 @@ class MainWindow(QMainWindow):
 
     def _on_device_info_updated(self, info):
         self._device_tab.update_device_info(info)
+
+    def _on_operation_activity_changed(self, active: bool):
+        """Prevent overlapping commands from sharing one DA connection."""
+        self._operation_active = active
+        enabled = self.device_manager.state == DeviceState.CONNECTED and not active
+        self._set_operation_controls_enabled(enabled)
+
+    def _set_operation_controls_enabled(self, enabled: bool):
+        self._read_tab.read_button.setEnabled(enabled)
+        self._write_tab.write_button.setEnabled(enabled)
+        self._erase_tab.erase_button.setEnabled(enabled)
+        self._keys_tab.generate_button.setEnabled(enabled)
+        self._bootloader_tab.unlock_button.setEnabled(enabled)
+        self._bootloader_tab.lock_button.setEnabled(enabled)
+        self._bootloader_tab.vbmeta_button.setEnabled(enabled)
+        self._memory_tab.set_enabled_all(enabled)
+        self._rpmb_tab.set_enabled_all(enabled)
+        self._imei_tab.set_enabled_all(enabled)
+        self._exploit_tab.set_enabled_all(enabled)
+        self._efuse_tab.read_button.setEnabled(enabled)
+        self._server_tab.start_button.setEnabled(enabled)
+
+    def _update_connection_notice(self, _index=None):
+        """Explain disabled operation controls on every non-Device tab."""
+        if self._tabs.currentIndex() == 0 or self.device_manager.state == DeviceState.CONNECTED:
+            self._connection_notice.setVisible(False)
+            return
+
+        state = self.device_manager.state
+        if state == DeviceState.DA_UNAVAILABLE:
+            message = (
+                "Preloader communication succeeded, but no working Download Agent "
+                "is available. Storage operations remain disabled."
+            )
+        elif state in (
+            DeviceState.DETECTING,
+            DeviceState.PRELOADER,
+            DeviceState.HANDSHAKING,
+            DeviceState.PRELOADER_CONNECTED,
+            DeviceState.CONNECTING_DA,
+            DeviceState.CANCELLING,
+        ):
+            message = (
+                "A connection attempt is in progress. Use Stop on the Device tab "
+                "to cancel it. Operations unlock only after the Download Agent is online."
+            )
+        elif state == DeviceState.ERROR:
+            message = (
+                "The last connection attempt failed. Open the Device tab for the "
+                "specific error and retry controls."
+            )
+        else:
+            message = (
+                "Connect a device and initialize a compatible Download Agent before "
+                "using this operation."
+            )
+
+        self._connection_notice.set_message(message)
+        self._connection_notice.setVisible(True)
 
     def _load_partitions(self):
         """Load partition list after connection (off main thread)."""
@@ -343,16 +433,44 @@ class MainWindow(QMainWindow):
             w.start()
 
     def _on_write(self):
-        params = self._write_tab.get_write_params()
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
+        try:
+            params = self._write_tab.get_write_params()
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", str(e))
+            return
 
-        if not ConfirmationDialog.confirm("Confirm Write", "This will overwrite flash data.", self):
+        mode = params["mode"]
+        if mode == 0:
+            targets = ", ".join(params["partitions"])
+            warning = (
+                f"Overwrite {len(params['partitions'])} partition(s) in "
+                f"{params['parttype']} storage: {targets}."
+            )
+        elif mode == 1:
+            warning = (
+                f"Overwrite the full {params['parttype']} storage using "
+                f"{os.path.basename(params['filenames'][0])}."
+            )
+        elif mode == 2:
+            end = params["offset"] + params["length"] - 1
+            warning = (
+                f"Overwrite {params['parttype']} storage from "
+                f"0x{params['offset']:X} through 0x{end:X} using "
+                f"{os.path.basename(params['filename'])}."
+            )
+        else:
+            warning = (
+                f"Write matching partition images from {params['directory']} "
+                f"to {params['parttype']} storage."
+            )
+
+        if not ConfirmationDialog.confirm("Confirm Write", warning, self):
             return
 
         self._progress_panel.start("Writing...")
-        mode = params["mode"]
 
         if mode == 0:  # Partitions
             w = self.device_manager.create_worker(
@@ -382,21 +500,34 @@ class MainWindow(QMainWindow):
             w.start()
 
     def _on_erase(self):
-        params = self._erase_tab.get_erase_params()
         wrapper = self.device_manager.wrapper
         if not wrapper:
             return
+        try:
+            params = self._erase_tab.get_erase_params()
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", str(e))
+            return
 
-        if not ConfirmationDialog.confirm("Confirm Erase", "This will permanently erase data.", self):
+        if params["mode"] == 0:
+            targets = ", ".join(params["partitions"])
+            warning = (
+                f"Permanently erase {len(params['partitions'])} partition(s) "
+                f"from {params['parttype']} storage: {targets}."
+            )
+        else:
+            end = params["sector"] + params["sectors"] - 1
+            warning = (
+                f"Permanently erase {params['parttype']} sectors "
+                f"{params['sector']} through {end}."
+            )
+
+        if not ConfirmationDialog.confirm("Confirm Erase", warning, self):
             return
 
         self._progress_panel.start("Erasing...")
 
         if params["mode"] == 0:  # Partitions
-            if not params.get("partitions"):
-                QMessageBox.warning(self, "No Selection", "Select at least one partition.")
-                self._progress_panel.reset()
-                return
             w = self.device_manager.create_worker(
                 wrapper.erase_partitions, params["partitions"], params["parttype"])
             w.finished.connect(lambda r: self._on_op_done("Erase partitions", r))
@@ -478,9 +609,29 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Reading memory...")
         self._last_peek_addr = params["addr"]
         w = self.device_manager.create_worker(
-            wrapper.peek, params["addr"], params["length"], "", params["registers"])
+            wrapper.peek, params["addr"], params["length"], None, params["registers"])
         w.finished.connect(self._on_peek_done)
         w.error.connect(lambda e: self._on_op_error("Peek", e))
+        w.start()
+
+    def _on_peek_to_file(self):
+        wrapper = self.device_manager.wrapper
+        if not wrapper:
+            return
+        try:
+            params = self._memory_tab.get_peek_params()
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid Input", str(e))
+            return
+        filename = self._memory_tab.choose_peek_output_file()
+        if not filename:
+            return
+        self._progress_panel.start("Reading memory to file...")
+        w = self.device_manager.create_worker(
+            wrapper.peek, params["addr"], params["length"],
+            filename, params["registers"])
+        w.finished.connect(lambda r: self._on_op_done("Memory read to file", r))
+        w.error.connect(lambda e: self._on_op_error("Memory read", e))
         w.start()
 
     def _on_peek_done(self, data):
@@ -816,11 +967,8 @@ class MainWindow(QMainWindow):
     # ── Button-disable helper ────────────────────────────
 
     def _start_op(self, button, func, *args, **kwargs):
-        """Create a worker, disable the triggering button, re-enable on completion."""
-        button.setEnabled(False)
+        """Create a worker; DeviceManager locks all DA controls until it ends."""
         w = self.device_manager.create_worker(func, *args, **kwargs)
-        w.finished.connect(lambda _: button.setEnabled(True))
-        w.error.connect(lambda _: button.setEnabled(True))
         w.start()
         return w
 

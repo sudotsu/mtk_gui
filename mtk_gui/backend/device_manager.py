@@ -1,6 +1,7 @@
 """Connection state machine and USB polling."""
 import logging
 import threading
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
 
@@ -8,6 +9,8 @@ from PySide6.QtCore import QObject, Signal
 
 from mtk_gui.backend.log_interceptor import LogSignalEmitter, GuiSignalProxy
 from mtk_gui.backend.mtk_wrapper import MtkWrapper, DeviceInfo
+from mtk_gui.backend.port_detection import find_mtk_serial_port
+from mtk_gui.backend.stdio_bridge import attach_streams, detach_streams
 from mtk_gui.backend.worker import Worker
 from mtk_gui.constants import USB_POLL_INTERVAL_MS
 
@@ -16,9 +19,19 @@ class DeviceState(Enum):
     DISCONNECTED = auto()
     DETECTING = auto()
     PRELOADER = auto()
+    HANDSHAKING = auto()
+    PRELOADER_CONNECTED = auto()
     CONNECTING_DA = auto()
     CONNECTED = auto()
+    DA_UNAVAILABLE = auto()
+    CANCELLING = auto()
     ERROR = auto()
+
+
+@dataclass(frozen=True)
+class ConnectionOutcome:
+    preloader_connected: bool = False
+    da_connected: bool = False
 
 
 class DeviceManager(QObject):
@@ -29,7 +42,10 @@ class DeviceManager(QObject):
     log_message = Signal(str, int)            # message, level
     progress_update = Signal(int, int)        # current, total
     status_update = Signal(str)
-    _usb_detected = Signal(int)              # PID (internal, thread→main)
+    operation_activity_changed = Signal(bool)
+    _usb_detected = Signal(int, str)         # PID, VCOM port (internal, thread→main)
+    _connection_stage = Signal(object)       # DeviceState (worker→main)
+    _preloader_info = Signal(object)         # DeviceInfo (worker→main)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,6 +53,8 @@ class DeviceManager(QObject):
         self._wrapper: Optional[MtkWrapper] = None
         self._device_info = DeviceInfo()
         self._workers: list[Worker] = []
+        self._operation_workers: list[Worker] = []
+        self._connect_worker: Optional[Worker] = None
         self._shutting_down = False
 
         # Log signal bridge
@@ -44,11 +62,15 @@ class DeviceManager(QObject):
         self._log_emitter.log_received.connect(self.log_message)
         self._log_emitter.progress_received.connect(self.progress_update)
         self._log_emitter.status_received.connect(self.status_update)
+        attach_streams(self.log_message.emit)
 
         # USB poll thread
         self._poll_stop = threading.Event()
         self._poll_thread: Optional[threading.Thread] = None
         self._usb_detected.connect(self._on_usb_detected)
+        self._connection_stage.connect(self._set_state)
+        self._preloader_info.connect(self._on_preloader_info)
+        self._detected_serial_port: Optional[str] = None
 
         # Connection settings
         self.preloader_path: Optional[str] = None
@@ -93,13 +115,12 @@ class DeviceManager(QObject):
 
     def _poll_usb_loop(self):
         """Background thread: poll USB until device found or stopped."""
+        from mtk_gui.constants import MTK_USB_VID, MTK_PRELOADER_PIDS
+
         try:
             import usb.core
-            from mtk_gui.constants import MTK_USB_VID, MTK_PRELOADER_PIDS
         except ImportError:
-            self.log_message.emit(
-                "pyusb not available — use manual connect", logging.WARNING)
-            return
+            usb = None
 
         interval = USB_POLL_INTERVAL_MS / 1000.0
         while not self._poll_stop.is_set():
@@ -107,33 +128,59 @@ class DeviceManager(QObject):
                 self._poll_stop.wait(interval)
                 continue
             try:
-                dev = usb.core.find(idVendor=MTK_USB_VID)
+                serial_port = find_mtk_serial_port()
+                if serial_port is not None:
+                    self._usb_detected.emit(
+                        serial_port.pid or 0, serial_port.device)
+                    return
+
+                dev = (usb.core.find(idVendor=MTK_USB_VID)
+                       if usb is not None else None)
                 if dev is not None:
                     pid = dev.idProduct
                     if pid in MTK_PRELOADER_PIDS:
-                        self._usb_detected.emit(pid)
+                        self._usb_detected.emit(pid, "")
                         return
-            except Exception:
-                pass
+            except Exception as err:
+                self.log_message.emit(
+                    f"Device detection retry: {err}", logging.DEBUG)
             self._poll_stop.wait(interval)
 
-    def _on_usb_detected(self, pid: int):
+    def _on_usb_detected(self, pid: int, serial_port: str):
         """Handle USB detection on the main thread (via signal)."""
         if self._shutting_down:
             return
         from mtk_gui.constants import MTK_USB_VID
+        self._detected_serial_port = serial_port or None
         self._set_state(DeviceState.PRELOADER)
+        transport = f"; VCOM={serial_port}" if serial_port else ""
         self.log_message.emit(
-            f"MTK device detected: VID={MTK_USB_VID:#06x} PID={pid:#06x}",
+            f"MTK device detected: VID={MTK_USB_VID:#06x} "
+            f"PID={pid:#06x}{transport}",
             logging.INFO,
         )
 
     def connect_device(self):
         """Initiate connection to detected device."""
-        if self._state == DeviceState.CONNECTED:
+        if self._state in (
+            DeviceState.DETECTING,
+            DeviceState.HANDSHAKING,
+            DeviceState.CONNECTING_DA,
+            DeviceState.CANCELLING,
+            DeviceState.CONNECTED,
+        ):
             return
 
-        self._set_state(DeviceState.CONNECTING_DA)
+        # An explicitly selected COM port is already a concrete target. In
+        # automatic mode, wait until the short-lived MTK USB/VCOM node exists
+        # instead of asking mtkclient to fail an empty enumeration immediately.
+        if self.serial_port is None and self._state != DeviceState.PRELOADER:
+            self._set_state(DeviceState.DETECTING)
+            self.start_polling()
+            return
+
+        self.stop_polling()
+        self._set_state(DeviceState.HANDSHAKING)
 
         # Create signal proxy for mtkclient
         proxy = GuiSignalProxy(self._log_emitter)
@@ -147,11 +194,13 @@ class DeviceManager(QObject):
         worker = Worker(self._do_connect)
         worker.finished.connect(self._on_connect_finished)
         worker.error.connect(self._on_connect_error)
+        worker.cancelled.connect(self._on_connect_cancelled)
+        self._connect_worker = worker
         self._track_worker(worker)
         worker.start()
 
     def _do_connect(self, worker=None):
-        """Run connection in worker thread."""
+        """Run the Preloader and DA connection stages in a worker thread."""
         self._wrapper.init(
             preloader=self.preloader_path,
             loader=self.da_loader_path,
@@ -160,45 +209,158 @@ class DeviceManager(QObject):
             stock=self.stock_da,
             work_dir=self.work_dir,
         )
-        success = self._wrapper.connect(self.work_dir)
-        return success
+        if self._wrapper.transport_backend:
+            self.log_message.emit(
+                f"USB backend: {self._wrapper.transport_backend}",
+                logging.INFO,
+            )
+        self._connection_stage.emit(DeviceState.HANDSHAKING)
+        preloader_connected = self._wrapper.connect_preloader(self.work_dir)
+        if not preloader_connected:
+            return ConnectionOutcome()
 
-    def _on_connect_finished(self, success):
-        if success:
+        info = self._wrapper.get_device_info()
+        self._preloader_info.emit(info)
+        self._connection_stage.emit(DeviceState.PRELOADER_CONNECTED)
+        if worker is not None and worker.is_cancelled:
+            return ConnectionOutcome(preloader_connected=True)
+
+        self._connection_stage.emit(DeviceState.CONNECTING_DA)
+        da_connected = self._wrapper.configure_da()
+        return ConnectionOutcome(
+            preloader_connected=True,
+            da_connected=da_connected,
+        )
+
+    def _on_connect_finished(self, outcome: ConnectionOutcome):
+        self._connect_worker = None
+        if outcome.da_connected:
             self._device_info = self._wrapper.get_device_info()
             self._set_state(DeviceState.CONNECTED)
             self.device_info_updated.emit(self._device_info)
             self.log_message.emit("Device connected successfully.", logging.INFO)
+        elif outcome.preloader_connected:
+            self._set_state(DeviceState.DA_UNAVAILABLE)
+            hwcode = self._device_info.hwcode or "unknown hardware"
+            self.log_message.emit(
+                f"Preloader handshake complete ({hwcode}), but no working "
+                "Download Agent is available. Storage operations are disabled.",
+                logging.ERROR,
+            )
         else:
+            if self._wrapper:
+                self._wrapper.disconnect()
+                self._wrapper = None
             self._set_state(DeviceState.ERROR)
-            self.log_message.emit("Connection failed.", logging.ERROR)
+            self.log_message.emit(
+                "Preloader handshake failed. Stop, reconnect the phone, and retry.",
+                logging.ERROR,
+            )
+            self._log_vcom_fallback()
 
     def _on_connect_error(self, msg: str):
+        self._connect_worker = None
+        if self._wrapper:
+            self._wrapper.disconnect()
+            self._wrapper = None
         self._set_state(DeviceState.ERROR)
-        self.log_message.emit(f"Connection error: {msg}", logging.ERROR)
+        summary = msg.splitlines()[0] if msg else "Unknown connection error"
+        self.log_message.emit(f"Connection error: {summary}", logging.ERROR)
+        self._log_vcom_fallback()
+
+    def _on_connect_cancelled(self):
+        self._connect_worker = None
+        if self._wrapper:
+            self._wrapper.disconnect()
+            self._wrapper = None
+        self._device_info = DeviceInfo()
+        self.device_info_updated.emit(self._device_info)
+        self._set_state(DeviceState.DISCONNECTED)
+        self.log_message.emit("Connection attempt stopped.", logging.INFO)
+
+    def _on_preloader_info(self, info: DeviceInfo):
+        self._device_info = info
+        self.device_info_updated.emit(info)
+
+    def cancel_connection(self):
+        """Stop a pending detection, handshake, or DA initialization."""
+        if self._state == DeviceState.DETECTING:
+            self.stop_polling()
+            self._set_state(DeviceState.DISCONNECTED)
+            self.log_message.emit("Device detection stopped.", logging.INFO)
+            return
+
+        if self._state not in (
+            DeviceState.PRELOADER,
+            DeviceState.HANDSHAKING,
+            DeviceState.PRELOADER_CONNECTED,
+            DeviceState.CONNECTING_DA,
+        ):
+            return
+
+        self._set_state(DeviceState.CANCELLING)
+        self.log_message.emit("Stopping connection attempt...", logging.INFO)
+        if self._connect_worker:
+            self._connect_worker.cancel()
+        if self._wrapper:
+            self._wrapper.request_cancel()
+
+    def _log_vcom_fallback(self):
+        """Advertise the real alternate transport when Windows exposed one."""
+        if self.serial_port is None and self._detected_serial_port:
+            self.log_message.emit(
+                f"MediaTek VCOM is available on {self._detected_serial_port}. "
+                "Select that Serial Port and retry if direct USB cannot open "
+                "the device.",
+                logging.WARNING,
+            )
 
     def disconnect_device(self):
         """Disconnect from device."""
+        if self._state in (
+            DeviceState.DETECTING,
+            DeviceState.PRELOADER,
+            DeviceState.HANDSHAKING,
+            DeviceState.PRELOADER_CONNECTED,
+            DeviceState.CONNECTING_DA,
+            DeviceState.CANCELLING,
+        ):
+            self.cancel_connection()
+            return
+
         self._cancel_all_workers()
         if self._wrapper:
             self._wrapper.disconnect()
             self._wrapper = None
         self._device_info = DeviceInfo()
+        self._detected_serial_port = None
         self._set_state(DeviceState.DISCONNECTED)
         self.device_info_updated.emit(self._device_info)
         self.log_message.emit("Device disconnected.", logging.INFO)
-        if not self._shutting_down:
-            self.start_polling()
 
     def begin_shutdown(self):
         """Called during app close — prevents post-shutdown side effects."""
         self._shutting_down = True
+        detach_streams()
 
     def create_worker(self, func, *args, **kwargs) -> Worker:
         """Create and track a worker for a backend operation."""
         w = Worker(func, *args, **kwargs)
+        was_idle = not self._operation_workers
+        self._operation_workers.append(w)
+        w.finished.connect(lambda _: self._untrack_operation_worker(w))
+        w.error.connect(lambda _: self._untrack_operation_worker(w))
+        w.cancelled.connect(lambda: self._untrack_operation_worker(w))
         self._track_worker(w)
+        if was_idle:
+            self.operation_activity_changed.emit(True)
         return w
+
+    def _untrack_operation_worker(self, worker: Worker):
+        if worker in self._operation_workers:
+            self._operation_workers.remove(worker)
+            if not self._operation_workers:
+                self.operation_activity_changed.emit(False)
 
     def _track_worker(self, worker: Worker):
         self._workers.append(worker)
@@ -211,9 +373,14 @@ class DeviceManager(QObject):
             self._workers.remove(worker)
 
     def _cancel_all_workers(self):
+        if self._wrapper:
+            self._wrapper.request_cancel()
         for w in list(self._workers):
             w.cancel()
         # Wait briefly for workers to finish
         for w in list(self._workers):
             w.wait(2000)
         self._workers.clear()
+        if self._operation_workers:
+            self._operation_workers.clear()
+            self.operation_activity_changed.emit(False)

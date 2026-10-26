@@ -23,9 +23,11 @@ MTK-GUI is a ground-up replacement built with PySide6. It's modular (12 tabs, ea
 ## Requirements
 
 - Python 3.9+
-- [mtkclient](https://github.com/bkerler/mtkclient) installed and on `sys.path`
+- [mtkclient](https://github.com/bkerler/mtkclient) at the commit pinned in
+  `pyproject.toml` (includes the Windows build 26200 USB fix)
 - PySide6 >= 6.5
 - pyusb (for automatic device detection)
+- pyserial (for MTK COM/VCOM discovery and the optional serial transport)
 
 ## Installation
 
@@ -35,7 +37,7 @@ git clone https://github.com/sudotsu/mtk_gui.git
 cd mtk_gui
 
 # Install dependencies
-pip install PySide6 mtkclient
+pip install .
 
 # Run
 python run.py
@@ -49,6 +51,13 @@ pyinstaller mtk-gui.spec --noconfirm
 ```
 
 The standalone executable will be at `dist/mtk-gui/mtk-gui.exe`. The entire `dist/mtk-gui/` folder is distributable.
+
+On Windows, **Auto-detect** uses mtkclient's direct USB transport. When a live
+MediaTek device is exposed through the installed libusb-win32 upper filter, the
+app selects that backend instead of the broken UsbDk path on Windows build
+26200. The app also lists live MediaTek COM/VCOM ports under **Serial Port**;
+press **Refresh** after connecting a powered-off phone because Preloader ports
+are short-lived.
 
 ## Project structure
 

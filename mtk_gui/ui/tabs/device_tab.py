@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
 )
 
 from mtk_gui.theme.colors import Colors
+from mtk_gui.backend.port_detection import list_serial_ports
 
 
 class StatusLed(QLabel):
@@ -130,7 +131,15 @@ class DeviceTab(QWidget):
         self._serial_combo = QComboBox()
         self._serial_combo.addItem("(auto-detect)", None)
         self._serial_combo.setEditable(True)
-        settings_grid.addWidget(self._serial_combo, 2, 1, 1, 2)
+        self._serial_combo.setToolTip(
+            "Auto-detect uses direct USB. Select a MediaTek COM/VCOM port "
+            "to use mtkclient's serial transport instead.")
+        settings_grid.addWidget(self._serial_combo, 2, 1)
+        serial_refresh = QPushButton("Refresh")
+        serial_refresh.setFixedWidth(70)
+        serial_refresh.clicked.connect(self.refresh_serial_ports)
+        settings_grid.addWidget(serial_refresh, 2, 2)
+        self.refresh_serial_ports()
 
         # Working directory
         settings_grid.addWidget(QLabel("Working Dir:"), 3, 0)
@@ -171,6 +180,22 @@ class DeviceTab(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Select Working Directory")
         if d:
             self._workdir_input.setText(d)
+
+    def refresh_serial_ports(self):
+        """Refresh the selectable COM ports without losing the selection."""
+        selected = self._serial_combo.currentData()
+        if selected is None and self._serial_combo.currentText() != "(auto-detect)":
+            selected = self._serial_combo.currentText().strip() or None
+
+        self._serial_combo.clear()
+        self._serial_combo.addItem("(auto-detect)", None)
+        selected_index = 0
+        for port in list_serial_ports():
+            label = f"{port.device} — {port.description}"
+            self._serial_combo.addItem(label, port.device)
+            if port.device == selected:
+                selected_index = self._serial_combo.count() - 1
+        self._serial_combo.setCurrentIndex(selected_index)
 
     # ── Public API ────────────────────────────────────────
 
@@ -244,15 +269,39 @@ class DeviceTab(QWidget):
         state_map = {
             DeviceState.DISCONNECTED: ("Disconnected", Colors.LED_DISCONNECTED),
             DeviceState.DETECTING: ("Detecting...", Colors.LED_DETECTING),
-            DeviceState.PRELOADER: ("Preloader detected", Colors.LED_CONNECTING),
-            DeviceState.CONNECTING_DA: ("Connecting DA...", Colors.LED_CONNECTING),
-            DeviceState.CONNECTED: ("Connected", Colors.LED_CONNECTED),
-            DeviceState.ERROR: ("Error", Colors.LED_DISCONNECTED),
+            DeviceState.PRELOADER: ("Preloader/VCOM detected", Colors.LED_CONNECTING),
+            DeviceState.HANDSHAKING: ("Handshaking with Preloader...", Colors.LED_CONNECTING),
+            DeviceState.PRELOADER_CONNECTED: ("Preloader connected", Colors.LED_CONNECTED),
+            DeviceState.CONNECTING_DA: ("Loading Download Agent...", Colors.LED_CONNECTING),
+            DeviceState.CONNECTED: ("DA connected — storage available", Colors.LED_CONNECTED),
+            DeviceState.DA_UNAVAILABLE: (
+                "Preloader connected — Download Agent unavailable",
+                Colors.LED_CONNECTING,
+            ),
+            DeviceState.CANCELLING: ("Stopping connection attempt...", Colors.LED_DETECTING),
+            DeviceState.ERROR: ("Connection failed — try Connect to retry", Colors.LED_DISCONNECTED),
         }
         label, color = state_map.get(state, ("Unknown", Colors.LED_DISCONNECTED))
         self._status_label.setText(label)
         self._status_led.set_color(color)
 
         connected = state == DeviceState.CONNECTED
-        self._connect_btn.setEnabled(not connected)
-        self._disconnect_btn.setEnabled(connected)
+        busy = state in (
+            DeviceState.DETECTING,
+            DeviceState.PRELOADER,
+            DeviceState.HANDSHAKING,
+            DeviceState.PRELOADER_CONNECTED,
+            DeviceState.CONNECTING_DA,
+            DeviceState.CANCELLING,
+        )
+        partial = state == DeviceState.DA_UNAVAILABLE
+        stoppable = busy and state != DeviceState.CANCELLING
+
+        self._connect_btn.setEnabled(not connected and not busy and not partial)
+        self._disconnect_btn.setText("Stop" if busy else "Disconnect")
+        self._disconnect_btn.setEnabled(connected or partial or stoppable)
+        self._disconnect_btn.setToolTip(
+            "Stop the current connection attempt and release the device port."
+            if busy
+            else "Cleanly disconnect and release the device port."
+        )

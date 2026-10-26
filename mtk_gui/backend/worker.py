@@ -1,4 +1,5 @@
 """QThread-based worker for running backend operations off the GUI thread."""
+import threading
 import traceback
 from PySide6.QtCore import QThread, Signal
 
@@ -29,11 +30,11 @@ class Worker(QThread):
         self._func = func
         self._args = args
         self._kwargs = kwargs
-        self._cancelled = False
+        self._cancel_event = threading.Event()
 
     def cancel(self):
-        """Mark the worker as cancelled."""
-        self._cancelled = True
+        """Request cooperative cancellation of the worker."""
+        self._cancel_event.set()
 
     @property
     def is_cancelled(self):
@@ -42,18 +43,24 @@ class Worker(QThread):
         Returns:
         	bool: `True` if cancellation has been requested, `False` otherwise.
         """
-        return self._cancelled
+        return self._cancel_event.is_set()
 
     def run(self):
         """Execute the worker function and emit its result or an error message."""
         try:
             result = self._func(*self._args, worker=self, **self._kwargs)
-            if self._cancelled:
+            if self.is_cancelled:
                 self.cancelled.emit()
             else:
                 self.finished.emit(result)
         except SystemExit as e:
-            self.error.emit(f"Operation aborted (sys.exit({e.code})).")
+            if self.is_cancelled:
+                self.cancelled.emit()
+            else:
+                self.error.emit(f"Operation aborted (sys.exit({e.code})).")
         except Exception as e:
-            tb = traceback.format_exc()
-            self.error.emit(f"{e}\n{tb}")
+            if self.is_cancelled:
+                self.cancelled.emit()
+            else:
+                tb = traceback.format_exc()
+                self.error.emit(f"{e}\n{tb}")

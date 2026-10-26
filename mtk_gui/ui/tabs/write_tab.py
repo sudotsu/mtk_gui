@@ -1,4 +1,6 @@
 """Write tab — partition/flash/offset/directory write operations."""
+import os
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
@@ -68,16 +70,6 @@ class WriteTab(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._part_tree.itemDoubleClicked.connect(self._on_part_file_select)
         part_layout.addWidget(self._part_tree)
-
-        gpt_row = QHBoxLayout()
-        gpt_row.addWidget(QLabel("GPT File (optional):"))
-        self._gpt_file_input = QLineEdit()
-        gpt_row.addWidget(self._gpt_file_input, 1)
-        gpt_browse = QPushButton("Browse")
-        gpt_browse.setFixedWidth(70)
-        gpt_browse.clicked.connect(lambda: self._browse_open(self._gpt_file_input))
-        gpt_row.addWidget(gpt_browse)
-        part_layout.addLayout(gpt_row)
 
         self._stack.addWidget(part_page)
 
@@ -241,13 +233,34 @@ class WriteTab(QWidget):
                     filenames.append(item.text(1))
             params["partitions"] = partitions
             params["filenames"] = filenames
-            params["gpt_file"] = self._gpt_file_input.text() or None
+            if not partitions:
+                raise ValueError("Select at least one partition image to write.")
+            missing = [path for path in filenames if not os.path.isfile(path)]
+            if missing:
+                raise ValueError(f"Partition image does not exist: {missing[0]}")
         elif mode == 1:
-            params["filenames"] = [self._flash_file_input.text()]
+            filename = self._flash_file_input.text().strip()
+            if not filename:
+                raise ValueError("Select a full-flash image.")
+            if not os.path.isfile(filename):
+                raise ValueError(f"Flash image does not exist: {filename}")
+            params["filenames"] = [filename]
         elif mode == 2:
-            params["offset"] = int(self._offset_input.text() or "0", 16)
-            params["length"] = int(self._offset_len_input.text() or "0", 16)
-            params["filename"] = self._offset_file_input.text()
+            offset_text = self._offset_input.text().strip()
+            length_text = self._offset_len_input.text().strip()
+            filename = self._offset_file_input.text().strip()
+            if not offset_text or not length_text:
+                raise ValueError("Offset and length are required.")
+            if not filename or not os.path.isfile(filename):
+                raise ValueError("Select an existing input file.")
+            params["offset"] = int(offset_text, 16)
+            params["length"] = int(length_text, 16)
+            if params["length"] <= 0:
+                raise ValueError("Length must be greater than zero.")
+            params["filename"] = filename
         elif mode == 3:
-            params["directory"] = self._dir_input.text()
+            directory = self._dir_input.text().strip()
+            if not directory or not os.path.isdir(directory):
+                raise ValueError("Select an existing source directory.")
+            params["directory"] = directory
         return params

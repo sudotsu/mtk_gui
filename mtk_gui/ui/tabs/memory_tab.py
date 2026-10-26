@@ -1,4 +1,4 @@
-"""Memory tab — peek/poke, memdump, BROM/SRAM dump."""
+"""Memory tab — peek/poke and supported BROM dump operations."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QLineEdit, QPushButton, QCheckBox, QFileDialog,
@@ -78,8 +78,8 @@ class MemoryTab(QWidget):
         poke_layout.addLayout(poke_btn_row)
         layout.addWidget(poke_group)
 
-        # ── Dump buttons ──────────────────────────────────
-        dump_group = QGroupBox("Memory Dumps")
+        # ── Boot ROM dump ─────────────────────────────────
+        dump_group = QGroupBox("Boot ROM Dump")
         dump_layout = QVBoxLayout(dump_group)
 
         dir_row = QHBoxLayout()
@@ -97,15 +97,7 @@ class MemoryTab(QWidget):
         self._brom_btn.setToolTip("Dump the Boot ROM. Useful for exploit development and research.")
         self._brom_btn.setEnabled(False)
         btn_row.addWidget(self._brom_btn)
-        self._sram_btn = QPushButton("Dump SRAM")
-        self._sram_btn.setEnabled(False)
-        btn_row.addWidget(self._sram_btn)
-        self._dram_btn = QPushButton("Dump DRAM")
-        self._dram_btn.setEnabled(False)
-        btn_row.addWidget(self._dram_btn)
-        self._memdump_btn = QPushButton("Full Memdump")
-        self._memdump_btn.setEnabled(False)
-        btn_row.addWidget(self._memdump_btn)
+        btn_row.addStretch()
         dump_layout.addLayout(btn_row)
         layout.addWidget(dump_group)
 
@@ -113,6 +105,12 @@ class MemoryTab(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
         if d:
             self._dump_dir.setText(d)
+
+    def choose_peek_output_file(self) -> str:
+        """Ask where to save a memory read and return the selected path."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Memory Read", "memory.bin", "Binary (*.bin);;All (*)")
+        return path
 
     # ── Public API ────────────────────────────────────────
 
@@ -131,18 +129,6 @@ class MemoryTab(QWidget):
     @property
     def brom_button(self) -> QPushButton:
         return self._brom_btn
-
-    @property
-    def sram_button(self) -> QPushButton:
-        return self._sram_btn
-
-    @property
-    def dram_button(self) -> QPushButton:
-        return self._dram_btn
-
-    @property
-    def memdump_button(self) -> QPushButton:
-        return self._memdump_btn
 
     @property
     def hex_viewer(self) -> HexViewer:
@@ -175,5 +161,5 @@ class MemoryTab(QWidget):
 
     def set_enabled_all(self, enabled: bool):
         for btn in (self._peek_btn, self._peek_save_btn, self._poke_btn,
-                     self._brom_btn, self._sram_btn, self._dram_btn, self._memdump_btn):
+                     self._brom_btn):
             btn.setEnabled(enabled)

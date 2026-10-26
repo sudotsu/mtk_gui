@@ -124,7 +124,17 @@ class EraseTab(QWidget):
         params = {"mode": mode, "parttype": self._parttype_combo.currentText()}
         if mode == 0:
             params["partitions"] = self._partition_list.get_selected()
+            if not params["partitions"]:
+                raise ValueError("Select at least one partition to erase.")
         else:
-            params["sector"] = int(self._sector_start.text() or "0")
-            params["sectors"] = int(self._sector_count.text() or "0")
+            start_text = self._sector_start.text().strip()
+            count_text = self._sector_count.text().strip()
+            if not start_text or not count_text:
+                raise ValueError("Start sector and sector count are required.")
+            params["sector"] = int(start_text)
+            params["sectors"] = int(count_text)
+            if params["sector"] < 0:
+                raise ValueError("Start sector cannot be negative.")
+            if params["sectors"] <= 0:
+                raise ValueError("Sector count must be greater than zero.")
         return params

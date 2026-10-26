@@ -13,10 +13,23 @@ usb_hiddenimports = collect_submodules('usb')
 # Collect mtkclient data files (DA loaders, configs, etc.)
 mtkclient_datas = collect_data_files('mtkclient')
 
+# mtkclient's Windows 26200 fallback needs the libusb-win32 user-mode DLL
+# matching the installed libusb0 upper-filter driver. A frozen app cannot find
+# the System32 copy through PyUSB's normal library search.
+usb_binaries = []
+if sys.platform.startswith('win'):
+    system_root = os.environ.get('SystemRoot', r'C:\Windows')
+    libusb0_dll = os.path.join(system_root, 'System32', 'libusb0.dll')
+    if not os.path.isfile(libusb0_dll):
+        raise SystemExit(
+            'libusb0.dll is required to build MTK-GUI on Windows. '
+            'Install the libusb-win32 filter driver first.')
+    usb_binaries.append((libusb0_dll, '.'))
+
 a = Analysis(
     ['run.py'],
     pathex=[],
-    binaries=[],
+    binaries=usb_binaries,
     datas=[
         ('mtk_gui/theme/*.qss', 'mtk_gui/theme'),
         ('plugins', 'plugins'),
