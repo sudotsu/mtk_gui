@@ -1,0 +1,100 @@
+"""Keys tab — hardware key generation and display."""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QLineEdit, QPushButton, QFileDialog, QTableWidget, QTableWidgetItem,
+    QHeaderView,
+)
+
+
+class KeysTab(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        """
+        Build the widget layout for directory selection, key generation, key display, and status messages.
+        """
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # Output directory
+        dir_group = QGroupBox("Output")
+        dir_layout = QHBoxLayout(dir_group)
+        dir_layout.addWidget(QLabel("Directory:"))
+        self._dir_input = QLineEdit(".")
+        self._dir_input.setToolTip("Where to save hwparam.json. Defaults to current directory.")
+        dir_layout.addWidget(self._dir_input, 1)
+        browse = QPushButton("Browse")
+        browse.setFixedWidth(70)
+        browse.clicked.connect(self._browse_dir)
+        dir_layout.addWidget(browse)
+        layout.addWidget(dir_group)
+
+        # Generate button
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._gen_btn = QPushButton("Generate Keys")
+        self._gen_btn.setToolTip("Extract hardware-bound crypto keys. Saved to hwparam.json in the output directory.")
+        self._gen_btn.setFixedWidth(140)
+        self._gen_btn.setEnabled(False)
+        btn_row.addWidget(self._gen_btn)
+        layout.addLayout(btn_row)
+
+        # Key table
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(["Key", "Value"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        layout.addWidget(self._table, 1)
+
+        # Status
+        self._status = QLabel("")
+        layout.addWidget(self._status)
+
+    def _browse_dir(self):
+        """Select an output directory and update the directory input when a directory is chosen."""
+        d = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if d:
+            self._dir_input.setText(d)
+
+    @property
+    def generate_button(self) -> QPushButton:
+        """Provide access to the key generation button.
+        
+        Returns:
+        	QPushButton: The key generation button.
+        """
+        return self._gen_btn
+
+    @property
+    def output_directory(self) -> str:
+        """
+        Return the selected output directory path.
+        
+        Returns:
+        	str: The trimmed directory path, or "." when the input is empty.
+        """
+        return self._dir_input.text().strip() or "."
+
+    def set_keys(self, keys: dict):
+        """
+        Display key-value pairs in the table.
+        
+        Parameters:
+        	keys (dict): Mapping of key names to their generated values.
+        """
+        self._table.setRowCount(len(keys))
+        for row, (key, value) in enumerate(keys.items()):
+            self._table.setItem(row, 0, QTableWidgetItem(str(key)))
+            self._table.setItem(row, 1, QTableWidgetItem(str(value)))
+
+    def set_status(self, msg: str):
+        """Update the status message displayed by the widget.
+        
+        Parameters:
+            msg (str): Text to display as the current status message.
+        """
+        self._status.setText(msg)
