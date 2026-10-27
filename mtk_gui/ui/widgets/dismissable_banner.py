@@ -50,13 +50,6 @@ class DismissableBanner(QWidget):
         super().__init__(parent)
         self._settings_key = settings_key
 
-        # Hide if previously dismissed
-        if settings_key:
-            settings = QSettings()
-            if settings.value(settings_key, False, type=bool):
-                self.setVisible(False)
-                return
-
         style = _STYLES.get(banner_type, _STYLES["warning"])
 
         self.setStyleSheet(
@@ -92,6 +85,12 @@ class DismissableBanner(QWidget):
             )
             close_btn.clicked.connect(self._dismiss)
             layout.addWidget(close_btn)
+
+        # Hide if previously dismissed. Built first so set_message() always works.
+        if settings_key:
+            settings = QSettings()
+            if settings.value(settings_key, False, type=bool):
+                self.setVisible(False)
 
     def set_message(self, message: str):
         """Replace the banner text without rebuilding the widget."""

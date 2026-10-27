@@ -113,6 +113,10 @@ class MtkWrapper:
             return True
         except SystemExit:
             return False
+        finally:
+            # The deadline only bounds the Preloader handshake; leaving it set
+            # would make later guarded handshakes fail with a stale timeout.
+            self._connect_deadline = None
 
     def configure_da(self) -> bool:
         """Select, upload, and initialize the Download Agent."""
