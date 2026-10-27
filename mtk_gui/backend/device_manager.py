@@ -3,12 +3,16 @@ import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
 
-from mtk_gui.backend.log_interceptor import LogSignalEmitter, GuiSignalProxy
-from mtk_gui.backend.mtk_wrapper import MtkWrapper, DeviceInfo
+from mtk_gui.backend.diagnostics import LOGGER_NAME as DIAG_LOGGER_NAME
+from mtk_gui.backend.log_interceptor import (
+    GuiSignalProxy,
+    LogSignalEmitter,
+    LogSignalHandler,
+)
+from mtk_gui.backend.mtk_wrapper import DeviceInfo, MtkWrapper
 from mtk_gui.backend.port_detection import find_mtk_serial_port
 from mtk_gui.backend.stdio_bridge import attach_streams, detach_streams
 from mtk_gui.backend.worker import Worker
@@ -50,11 +54,11 @@ class DeviceManager(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._state = DeviceState.DISCONNECTED
-        self._wrapper: Optional[MtkWrapper] = None
+        self._wrapper: MtkWrapper | None = None
         self._device_info = DeviceInfo()
         self._workers: list[Worker] = []
         self._operation_workers: list[Worker] = []
-        self._connect_worker: Optional[Worker] = None
+        self._connect_worker: Worker | None = None
         self._shutting_down = False
 
         # Log signal bridge
@@ -64,18 +68,28 @@ class DeviceManager(QObject):
         self._log_emitter.status_received.connect(self.status_update)
         attach_streams(self.log_message.emit)
 
+        # Route this application's own loggers into the GUI panel. mtkclient's
+        # output arrives separately through the stdout tee (it binds its own
+        # StreamHandler to sys.stdout at import time), so this handler is
+        # attached only to the "mtk_gui" tree to avoid logging every line twice.
+        # Without it, failures such as a plugin that will not load are written
+        # to a logger nobody is watching.
+        self._gui_log_handler = LogSignalHandler(self._log_emitter)
+        self._gui_log_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+        logging.getLogger(DIAG_LOGGER_NAME).addHandler(self._gui_log_handler)
+
         # USB poll thread
         self._poll_stop = threading.Event()
-        self._poll_thread: Optional[threading.Thread] = None
+        self._poll_thread: threading.Thread | None = None
         self._usb_detected.connect(self._on_usb_detected)
         self._connection_stage.connect(self._set_state)
         self._preloader_info.connect(self._on_preloader_info)
-        self._detected_serial_port: Optional[str] = None
+        self._detected_serial_port: str | None = None
 
         # Connection settings
-        self.preloader_path: Optional[str] = None
-        self.da_loader_path: Optional[str] = None
-        self.serial_port: Optional[str] = None
+        self.preloader_path: str | None = None
+        self.da_loader_path: str | None = None
+        self.serial_port: str | None = None
         self.iot_mode: bool = False
         self.stock_da: bool = False
         self.work_dir: str = "."
@@ -89,7 +103,7 @@ class DeviceManager(QObject):
         return self._device_info
 
     @property
-    def wrapper(self) -> Optional[MtkWrapper]:
+    def wrapper(self) -> MtkWrapper | None:
         return self._wrapper
 
     def _set_state(self, new_state: DeviceState):
@@ -115,13 +129,19 @@ class DeviceManager(QObject):
 
     def _poll_usb_loop(self):
         """Background thread: poll USB until device found or stopped."""
-        from mtk_gui.constants import MTK_USB_VID, MTK_PRELOADER_PIDS
+        from mtk_gui.constants import MTK_PRELOADER_PIDS, MTK_USB_VID
 
         try:
             import usb.core
-        except ImportError:
+        except ImportError as err:
             usb = None
+            self.log_message.emit(
+                f"PyUSB is unavailable ({err}); detection will use serial ports "
+                f"only. Install pyusb for USB-level device detection.",
+                logging.WARNING,
+            )
 
+        last_error = None
         interval = USB_POLL_INTERVAL_MS / 1000.0
         while not self._poll_stop.is_set():
             if self._state not in (DeviceState.DISCONNECTED, DeviceState.DETECTING):
@@ -142,8 +162,23 @@ class DeviceManager(QObject):
                         self._usb_detected.emit(pid, "")
                         return
             except Exception as err:
-                self.log_message.emit(
-                    f"Device detection retry: {err}", logging.DEBUG)
+                # Enumeration failures here are the most common real-world
+                # problem on Linux (missing udev rule, wrong group, device
+                # claimed by another process). Logging at DEBUG hid them behind
+                # an endless "Detecting..." with no explanation. Surface the
+                # first occurrence and each change, but do not repeat an
+                # identical message every poll interval.
+                message = f"Device detection failed: {err}"
+                if message != last_error:
+                    last_error = message
+                    self.log_message.emit(
+                        f"{message} (retrying every "
+                        f"{USB_POLL_INTERVAL_MS / 1000.0:g}s; on Linux check "
+                        f"udev rules and group membership for USB access)",
+                        logging.WARNING,
+                    )
+            else:
+                last_error = None
             self._poll_stop.wait(interval)
 
     def _on_usb_detected(self, pid: int, serial_port: str):
@@ -342,6 +377,9 @@ class DeviceManager(QObject):
         """Called during app close — prevents post-shutdown side effects."""
         self._shutting_down = True
         detach_streams()
+        if self._gui_log_handler is not None:
+            logging.getLogger(DIAG_LOGGER_NAME).removeHandler(self._gui_log_handler)
+            self._gui_log_handler = None
 
     def create_worker(self, func, *args, **kwargs) -> Worker:
         """Create and track a worker for a backend operation."""

@@ -6,12 +6,29 @@ build-backend = "setuptools.build_meta"
 name = "mtk-gui"
 version = "0.1.0"
 description = "Standalone GUI for mtkclient"
+readme = "README.md"
 license = "GPL-3.0-only"
-requires-python = ">=3.9"
+# 3.10 is the real floor: the codebase uses PEP 585 builtin generics
+# (list[...]) in evaluated annotation positions, which raise TypeError on 3.9.
+requires-python = ">=3.10"
 dependencies = [
-    "PySide6>=6.5",
+    # The upper bound is a reproducibility measure, not a verified crash
+    # workaround: the unbounded ">=6.5" meant the Qt version was whatever the
+    # install date happened to resolve to. 6.12.0 segfaulted on exit; see
+    # mtk_gui/app.py for the mitigation. This range is what we test against.
+    "PySide6>=6.11,<6.13",
     "pyserial>=3.5",
+    # Used directly by backend/device_manager.py and backend/windows_usb.py.
+    # Previously relied on arriving transitively through mtkclient.
+    "pyusb>=1.2",
     "mtkclient @ git+https://github.com/bkerler/mtkclient.git@7cb40e727727dfe3faa065eefb29b16ed29bbdf1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -19,3 +36,30 @@ mtk-gui = "mtk_gui.app:main"
 
 [tool.setuptools.packages.find]
 include = ["mtk_gui*"]
+
+# Without this the built wheel ships no stylesheets, and load_stylesheet()
+# returns "" silently, leaving an installed app unthemed with no error.
+[tool.setuptools.package-data]
+"mtk_gui.theme" = ["*.qss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+# Pinned explicitly: ruff's default selection changes between releases, and a
+# lint set that moves on its own turns every upgrade into a diff.
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "RET", "SIM", "PLW", "RUF"]
+ignore = [
+    "E501",    # line length is formatting, not correctness
+    "SIM105",  # contextlib.suppress is not clearer than try/except/pass here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Import order in app.py is load-bearing; see the comment at the top of it.
+"mtk_gui/app.py" = ["E402"]
+# Tests call subprocess deliberately without check=True (they assert on the code).
+"tests/*" = ["PLW1510"]
