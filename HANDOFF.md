@@ -5,7 +5,7 @@ happens, not at the end of a session. If you are a fresh context: read this,
 then `docs/audit-2026-10-26.md`, then the plan at
 `~/.claude/plans/instead-can-you-just-robust-koala.md`.
 
-**Last updated:** 2026-10-26, during Chunk 2 prep.
+**Last updated:** 2026-10-28, mid Chunk 2.
 
 ---
 
@@ -29,7 +29,7 @@ irreversible.
 | Chunk | Scope | Branch | State |
 |---|---|---|---|
 | 1 | Phase 0 — observability, diagnostics, crash mitigation, packaging blockers | `feat/phase0-observability` | **Committed `b90aaaf`. Not pushed.** |
-| 2 | Phase 1 — worker substrate, `operation.py`, typed errors | not started | next |
+| 2 | Phase 1 — worker substrate, `operation.py`, typed errors | `feat/phase0-observability` | **in progress.** Rename done (`08ead2d`). `operation.py` and typed errors still to do. |
 | 3 | Phase 2 — destructive-path correctness | not started | |
 | 4 | Phase 3a — `validation.py`, `safety.py` + tests | not started | |
 | 5 | Phase 3b — `BaseTab`, confirmation redesign | not started | |
@@ -85,12 +85,54 @@ mix unrelated churn into the Chunk 1 diff. Do them in Chunk 6.
 
 ---
 
-## Chunk 2 — next, in order
+## Interrupt: making the app actually usable (2026-10-28)
 
-1. Rename `Worker.finished` → `result_ready` **first** (it shadows
-   `QThread.finished` and is emitted before the thread exits). Doing the rename
-   before anything else is deliberate: it touches every call site that step 3
-   then collapses.
+The owner asked to be able to connect to his phone and run commands while the
+rest of the work proceeds. That took priority and is **done** — four commits.
+
+**The connection was impossible, not merely flaky.** The preloader accepts a
+handshake only in the few hundred ms after it enumerates. `_on_usb_detected`
+set state to `PRELOADER` and stopped, so the handshake needed a *second human
+click*. That can only succeed by luck, which is why the log showed nothing but
+`Handshake failed, retrying...`. Confirmed not an mtkclient bug: `mtk printgpt`
+from the CLI fails identically and ends with *"Please disconnect, start
+mtkclient and reconnect."*
+
+Fix (`5555518`): `connect_device()` arms the poller; the handshake starts the
+instant a device appears. A phone already attached has missed its window, so
+arming records its `(bus, address)` — reassigned by the kernel on every
+re-enumeration — and the poller ignores that one enumeration while telling the
+user to replug. Disarms on cancel, disconnect and shutdown.
+
+Observed: the MT65xx re-enumerates on its own (address moved 20 → 22 → …), so
+the armed poller can catch a window without the cable being touched.
+
+**Three further defects found and fixed while testing:**
+
+- `e98a5bf` — raw ANSI colour escapes were being written into the log file and
+  the GUI panel. Stripped on the captured copy only; passthrough keeps colour.
+- `64db2cd` — `BufferedTextStream.detach()` violated the `io.TextIOBase`
+  contract. mtkclient's `Library/utils.py` calls `sys.stdout.detach()` at
+  import time, which silently severed the GUI log callback. It worked only
+  because `DeviceManager` constructs *after* mtkclient is imported and
+  re-attaches. That ordering was undocumented and load-bearing. `detach()` now
+  raises `io.UnsupportedOperation`; the GUI methods are `attach_callback` /
+  `detach_callback`.
+- `64db2cd` — a log sink that printed re-entered `write()` and recursed to
+  `RecursionError`. Now guarded per-thread.
+
+`tests/conftest.py` is new and load-bearing: it installs the tee and *then*
+imports mtkclient, because otherwise mtkclient's import detaches pytest's own
+capture buffer and the whole suite dies before reporting anything.
+
+Tests: 10 → 23. Lint clean on changed files.
+
+---
+
+## Chunk 2 — remaining, in order
+
+1. ~~Rename `Worker.finished` → `result_ready`~~ **done, `08ead2d`** (38 call
+   sites; `_on_connect_finished` kept its name).
 2. Fix `backend/worker.py:61-63` — stop discarding the exception and traceback
    when `is_cancelled` is set. Carry the error *with* cancellation context.
    This is the single highest-value fix in the codebase: it is why a failed
