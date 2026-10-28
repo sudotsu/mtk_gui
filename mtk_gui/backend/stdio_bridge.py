@@ -32,6 +32,26 @@ def strip_ansi(text: str) -> str:
 _line_sinks: list[Callable[[str, int], None]] = []
 _sink_lock = threading.Lock()
 
+# mtkclient reports failures by printing a message and then calling sys.exit(),
+# so the exit carries a code but no reason -- the reason is in the output. This
+# ring buffer keeps the most recent captured lines so a raised error can quote
+# what the tool actually said instead of reporting a bare "FAILED".
+_recent_lines: deque = deque(maxlen=200)
+_recent_lock = threading.Lock()
+
+
+def recent_output(count: int = 12) -> list[str]:
+    """Return up to the last ``count`` captured output lines, oldest first."""
+    with _recent_lock:
+        if count <= 0:
+            return []
+        return list(_recent_lines)[-count:]
+
+
+def _record_recent(line: str):
+    with _recent_lock:
+        _recent_lines.append(line)
+
 
 def add_line_sink(sink: Callable[[str, int], None]):
     """Register a consumer for every captured line, as (message, level)."""
@@ -40,6 +60,7 @@ def add_line_sink(sink: Callable[[str, int], None]):
 
 
 def _emit_to_sinks(line: str, level: int):
+    _record_recent(line)
     with _sink_lock:
         sinks = list(_line_sinks)
     for sink in sinks:

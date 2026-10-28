@@ -4,6 +4,7 @@ import math
 import os
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -12,8 +13,49 @@ from mtkclient.Library.mtk_class import Mtk
 from mtkclient.config.mtk_config import MtkConfig
 from mtkclient.Library.DA.mtk_daloader import DAloader
 
+from mtk_gui.backend.stdio_bridge import recent_output
 from mtk_gui.backend.windows_usb import select_mtk_usb_backend
 from mtk_gui.constants import CONNECTION_TIMEOUT_SECONDS
+
+
+class MtkOperationError(RuntimeError):
+    """An mtkclient operation failed, with whatever reason could be recovered.
+
+    mtkclient reports failures by printing a message and then calling
+    ``sys.exit()``, so the exception itself carries only an exit code. Every
+    call site used to swallow that and ``return False``, which the UI rendered
+    as a bare "FAILED" -- indistinguishable, on an erase or a write, from "the
+    USB cable fell out half way through". The reason was never lost, only
+    unread: it went to stdout, which the stdio bridge captures. So the recent
+    output is attached here.
+    """
+
+    def __init__(self, operation: str, exit_code=None, log_tail=()):
+        self.operation = operation
+        self.exit_code = exit_code
+        self.log_tail = list(log_tail)
+        super().__init__(self._describe())
+
+    def _describe(self) -> str:
+        parts = [f"{self.operation} failed"]
+        if self.exit_code not in (None, 0):
+            parts.append(f"(mtkclient exited with {self.exit_code})")
+        text = " ".join(parts) + "."
+        if self.log_tail:
+            quoted = "\n".join(f"    {line}" for line in self.log_tail)
+            text += f"\n\nLast output before the failure:\n{quoted}"
+        return text
+
+
+@contextmanager
+def mtk_operation(name: str):
+    """Translate mtkclient's sys.exit() into a typed, explained failure."""
+    try:
+        yield
+    except SystemExit as exc:
+        raise MtkOperationError(
+            name, exit_code=exc.code, log_tail=recent_output()
+        ) from exc
 
 
 class ConnectionCancelled(RuntimeError):
@@ -320,21 +362,24 @@ class MtkWrapper:
         partitions = []
         if self.da_handler is None:
             return partitions
-        try:
+        # "except (SystemExit, Exception): pass" used to live here, which made
+        # a device that genuinely has no GPT indistinguishable from one whose
+        # USB connection had just died -- both produced an empty list. That
+        # list drives the Write and Erase tabs, so silently returning nothing
+        # on a transport failure is the dangerous case. A real failure now
+        # raises; only an absent GPT returns empty.
+        with mtk_operation("Read partition table"):
             gpt = self.mtk.daloader.get_gpt()
-            if gpt is None:
-                return partitions
-            gpt_data, gpt_guid = gpt
-            for partition in gpt_data:
-                p = PartitionInfo(
-                    name=partition.name,
-                    sector=partition.sector,
-                    sectors=partition.sectors,
-                    size=partition.sectors * self.config.SECTOR_SIZE_IN_BYTES,
-                )
-                partitions.append(p)
-        except (SystemExit, Exception):
-            pass
+        if gpt is None:
+            return partitions
+        gpt_data, _gpt_guid = gpt
+        for partition in gpt_data:
+            partitions.append(PartitionInfo(
+                name=partition.name,
+                sector=partition.sector,
+                sectors=partition.sectors,
+                size=partition.sectors * self.config.SECTOR_SIZE_IN_BYTES,
+            ))
         return partitions
 
     # ── Flash read operations ─────────────────────────────
@@ -344,12 +389,10 @@ class MtkWrapper:
         """Read a single partition to file."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Read partition"):
             return self.da_handler.da_read(
                 partition_name, parttype, filename, display=True
             )
-        except SystemExit:
-            return False
 
     def read_selected_partitions(self, partitions: list, directory: str,
                                   parttype: str = "user",
@@ -379,40 +422,32 @@ class MtkWrapper:
         """Read all partitions to directory."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Read partitions"):
             return self.da_handler.da_rl(directory, parttype, skip or [], display=True)
-        except SystemExit:
-            return False
 
     def read_flash(self, filename: str, parttype: str = "user",
                    offset: int = None, length: int = None, worker=None) -> bool:
         """Read full flash or offset range to file."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Read flash"):
             return self.da_handler.da_rf(filename, parttype, offset, length, display=True)
-        except SystemExit:
-            return False
 
     def read_sectors(self, start: int, sectors: int, filename: str,
                      parttype: str = "user", worker=None) -> bool:
         """Read by sector range."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Read sectors"):
             return self.da_handler.da_rs(start, sectors, filename, parttype, display=True)
-        except SystemExit:
-            return False
 
     def read_offset(self, start: int, length: int, filename: str,
                     parttype: str = "user", worker=None) -> bool:
         """Read by byte offset range."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Read offset"):
             return self.da_handler.da_ro(start, length, filename, parttype, display=True)
-        except SystemExit:
-            return False
 
     # ── Flash write operations ────────────────────────────
 
@@ -421,38 +456,30 @@ class MtkWrapper:
         """Write files to named partitions."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Write partitions"):
             return self.da_handler.da_write(parttype, filenames, partitions)
-        except SystemExit:
-            return False
 
     def write_flash(self, filenames: list, parttype: str = "user", worker=None) -> bool:
         """Write full flash image(s)."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Write flash"):
             return self.da_handler.da_wf(filenames, parttype)
-        except SystemExit:
-            return False
 
     def write_from_directory(self, parttype: str, directory: str, worker=None) -> bool:
         """Write all matching partition files from directory."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Write from directory"):
             return self.da_handler.da_wl(parttype, directory)
-        except SystemExit:
-            return False
 
     def write_offset(self, start: int, length: int, filename: str,
                      parttype: str = "user", worker=None) -> bool:
         """Write to a byte offset."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Write offset"):
             return self.da_handler.da_wo(start, length, filename, parttype)
-        except SystemExit:
-            return False
 
     # ── Erase operations ──────────────────────────────────
 
@@ -460,20 +487,16 @@ class MtkWrapper:
         """Erase named partitions."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Erase partitions"):
             return self.da_handler.da_erase(partitions, parttype)
-        except SystemExit:
-            return False
 
     def erase_sectors(self, sector: int, sectors: int,
                       parttype: str = "user", worker=None) -> bool:
         """Erase by sector range."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Erase sectors"):
             return self.da_handler.da_ess(sector, sectors, parttype)
-        except SystemExit:
-            return False
 
     # ── Security operations ───────────────────────────────
 
@@ -481,30 +504,24 @@ class MtkWrapper:
         """Generate hardware keys."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Generate keys"):
             self.config.hwparam_path = directory
             return self.mtk.daloader.keys()
-        except SystemExit:
-            return False
 
     def seccfg_unlock(self, lock: bool = False, critical: bool = False, worker=None) -> bool:
         """Lock or unlock bootloader via seccfg."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Bootloader seccfg change"):
             lockflag = "lock" if lock else "unlock"
             return self.mtk.daloader.seccfg(lockflag, critical)
-        except SystemExit:
-            return False
 
     def vbmeta_patch(self, vbmode: int = 3, worker=None) -> bool:
         """Patch vbmeta for verified boot bypass."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("vbmeta patch"):
             return self.da_handler.da_vbmeta(vbmode, display=True)
-        except SystemExit:
-            return False
 
     # ── Memory operations ─────────────────────────────────
 
@@ -513,7 +530,7 @@ class MtkWrapper:
         """Read memory at address, returning bytes or writing them to a file."""
         if self.mtk is None or not hasattr(self.mtk, "daloader"):
             return None
-        try:
+        with mtk_operation("Memory read"):
             remaining = length
             position = 0
             chunks = []
@@ -542,26 +559,20 @@ class MtkWrapper:
                 if output is not None:
                     output.close()
             return True if filename else b"".join(chunks)
-        except SystemExit:
-            return None
 
     def poke(self, addr: int, data: str, filename: str = "", worker=None) -> bool:
         """Write memory at address."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Memory write"):
             return self.da_handler.da_poke(addr, data, filename)
-        except SystemExit:
-            return False
 
     def dump_brom(self, filename: str, worker=None) -> bool:
         """Dump BROM."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("BROM dump"):
             return self.da_handler.da_brom(filename)
-        except SystemExit:
-            return False
 
     # ── RPMB operations ───────────────────────────────────
 
@@ -570,38 +581,30 @@ class MtkWrapper:
         """Read RPMB."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return None
-        try:
+        with mtk_operation("RPMB read"):
             return self.mtk.daloader.read_rpmb(filename, sector, sectors)
-        except SystemExit:
-            return None
 
     def write_rpmb(self, filename: str = None, sector: int = 0,
                    sectors: int = None, worker=None) -> bool:
         """Write RPMB."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("RPMB write"):
             return self.mtk.daloader.write_rpmb(filename, sector, sectors)
-        except SystemExit:
-            return False
 
     def erase_rpmb(self, sector: int = 0, sectors: int = None, worker=None) -> bool:
         """Erase RPMB."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("RPMB erase"):
             return self.mtk.daloader.erase_rpmb(sector, sectors)
-        except SystemExit:
-            return False
 
     def auth_rpmb(self, rpmbkey: bytes = None, worker=None) -> bool:
         """Authenticate RPMB with key."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("RPMB authentication"):
             return self.mtk.daloader.auth_rpmb(rpmbkey)
-        except SystemExit:
-            return False
 
     # ── eFuse ─────────────────────────────────────────────
 
@@ -609,10 +612,8 @@ class MtkWrapper:
         """Read eFuse values."""
         if self.da_handler is None:
             return None
-        try:
+        with mtk_operation("Read eFuses"):
             return self.da_handler.da_efuse()
-        except SystemExit:
-            return None
 
     # ── GPT ───────────────────────────────────────────────
 
@@ -620,10 +621,8 @@ class MtkWrapper:
         """Dump GPT to directory."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Dump GPT"):
             return self.da_handler.da_gpt(directory, display=True)
-        except SystemExit:
-            return False
 
     # ── IMEI ──────────────────────────────────────────────
 
@@ -632,7 +631,7 @@ class MtkWrapper:
         """Read IMEI(s) from nvdata partition. Returns list of (imei, valid) tuples."""
         if self.da_handler is None:
             return []
-        try:
+        with mtk_operation("Read IMEI"):
             from mtkclient.Library.utils import find_binary
             from mtkclient.Library.mtk_crypto import decode_imei, calc_checksum, is_luhn_valid
 
@@ -664,8 +663,6 @@ class MtkWrapper:
                     valid = is_luhn_valid(imei)
                     imeis.append((imei, valid))
             return imeis
-        except SystemExit:
-            return []
 
     def write_imei(self, imeis: list, seed: bytes = b"",
                    aeskey: bytes = b"\x00" * 32, product: str = "",
@@ -673,7 +670,7 @@ class MtkWrapper:
         """Write IMEI(s) to nvdata partition. imeis: list of IMEI strings."""
         if self.da_handler is None or not imeis:
             return False
-        try:
+        with mtk_operation("Write IMEI"):
             from mtkclient.Library.utils import find_binary
             from mtkclient.Library.mtk_crypto import (
                 encode_imei, calc_checksum, make_luhn_checksum,
@@ -718,15 +715,13 @@ class MtkWrapper:
             return self.da_handler.da_write_partition(
                 partitionname="nvdata", data=bytes(nvdata)
             )
-        except SystemExit:
-            return False
 
     def nvitem_crypt(self, filename: str, encrypt: bool = False,
                      worker=None):
         """Encrypt or decrypt an NVItem file. Returns processed bytes or None."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return None
-        try:
+        with mtk_operation("NVItem crypt"):
             with open(filename, "rb") as rf:
                 data = rf.read()
             return self.mtk.daloader.nvitem(
@@ -734,8 +729,6 @@ class MtkWrapper:
                 otp=self.mtk.config.get_otp(),
                 seed=b"", aeskey=b"\x00" * 32, display=False,
             )
-        except SystemExit:
-            return None
 
     # ── Exploit ───────────────────────────────────────────
 
@@ -743,80 +736,64 @@ class MtkWrapper:
         """Crash preloader/DA to get into BROM mode. mode=None iterates all modes."""
         if self.mtk is None:
             return False
-        try:
+        with mtk_operation("Crash preloader"):
             self.mtk.crasher(mode=mode)
             return True
-        except SystemExit:
-            return False
 
     def run_payload(self, filename: str, worker=None) -> bool:
         """Load and run a payload binary via boot_to."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Run payload"):
             with open(filename, "rb") as f:
                 data = f.read()
             return self.mtk.daloader.boot_to(addr=0x200000, data=data)
-        except SystemExit:
-            return False
 
     def run_stage2(self, filename: str, addr: int = 0x200000, worker=None) -> bool:
         """Load stage2 payload at address."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Run stage2"):
             with open(filename, "rb") as f:
                 data = f.read()
             return self.mtk.daloader.boot_to(addr=addr, data=data)
-        except SystemExit:
-            return False
 
     def set_meta_mode(self, porttype: str = "off", worker=None) -> bool:
         """Set meta mode (off/usb/uart)."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Set meta mode"):
             return self.mtk.daloader.setmetamode(porttype)
-        except SystemExit:
-            return False
 
     def shutdown(self, worker=None) -> bool:
         """Shutdown device."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Shutdown"):
             return self.mtk.daloader.shutdown()
-        except SystemExit:
-            return False
 
     def reset_device(self, worker=None) -> bool:
         """Reset/reboot device."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Reset device"):
             return self.mtk.daloader.shutdown(
                 bootmode=self.mtk.daloader.ShutDownModes.HOME_SCREEN
             )
-        except SystemExit:
-            return False
 
     def keyserver(self, worker=None) -> bool:
         """Run key server."""
         if self.mtk is None or not hasattr(self.mtk, 'daloader'):
             return False
-        try:
+        with mtk_operation("Key server"):
             return self.mtk.daloader.keyserver()
-        except SystemExit:
-            return False
 
     def patch_modem(self, worker=None) -> bool:
         """Patch modem partition."""
         if self.da_handler is None:
             return False
-        try:
+        with mtk_operation("Patch modem"):
             return self.da_handler.da_patch_modem()
-        except SystemExit:
-            return False
 
     # ── Helpers ───────────────────────────────────────────
 

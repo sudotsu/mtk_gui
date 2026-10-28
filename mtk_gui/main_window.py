@@ -962,8 +962,12 @@ class MainWindow(QMainWindow):
 
     def _on_op_error(self, name: str, error: str):
         self._progress_panel.finish(f"{name}: ERROR")
+        # The log keeps everything, including the traceback. The dialog shows
+        # only the explanation -- a MtkOperationError already quotes the last
+        # lines mtkclient printed, which is the part worth reading.
         self._log_panel.append_log(f"{name} error: {error}", logging.ERROR)
-        QMessageBox.warning(self, f"{name} Error", str(error))
+        summary = str(error).split("\nTraceback", 1)[0].strip() or str(error)
+        QMessageBox.warning(self, f"{name} Error", summary)
 
     def _on_op_cancelled(self, name: str, info):
         """Close out a cancelled operation, including one that also failed.
