@@ -5,7 +5,7 @@ happens, not at the end of a session. If you are a fresh context: read this,
 then `docs/audit-2026-10-26.md`, then the plan at
 `~/.claude/plans/instead-can-you-just-robust-koala.md`.
 
-**Last updated:** 2026-10-28, mid Chunk 2.
+**Last updated:** 2026-10-28, Chunk 2 complete.
 
 ---
 
@@ -29,7 +29,7 @@ irreversible.
 | Chunk | Scope | Branch | State |
 |---|---|---|---|
 | 1 | Phase 0 — observability, diagnostics, crash mitigation, packaging blockers | `feat/phase0-observability` | **Committed `b90aaaf`. Not pushed.** |
-| 2 | Phase 1 — worker substrate, `operation.py`, typed errors | `feat/phase0-observability` | **in progress.** Rename done (`08ead2d`). `operation.py` and typed errors still to do. |
+| 2 | Phase 1 — worker substrate, `operation.py`, typed errors | `feat/phase0-observability` | **complete.** `08ead2d` `aced175` `6aafb87` `3bb214b` |
 | 3 | Phase 2 — destructive-path correctness | not started | |
 | 4 | Phase 3a — `validation.py`, `safety.py` + tests | not started | |
 | 5 | Phase 3b — `BaseTab`, confirmation redesign | not started | |
@@ -129,10 +129,43 @@ Tests: 10 → 23. Lint clean on changed files.
 
 ---
 
-## Chunk 2 — remaining, in order
+## Chunk 2 — complete
 
-1. ~~Rename `Worker.finished` → `result_ready`~~ **done, `08ead2d`** (38 call
-   sites; `_on_connect_finished` kept its name).
+1. **`08ead2d`** — renamed `Worker.finished` → `result_ready` (38 call sites;
+   `_on_connect_finished` kept its name).
+2. **`aced175`** — `worker.py` no longer discards the exception and traceback
+   when `is_cancelled` is set. `cancelled` carries a `Cancellation` record
+   (clean / message / traceback). The regression test was checked to genuinely
+   fail against the old behaviour.
+3. **`6aafb87`** — new `backend/operation.py`. All 36 dispatch sites in
+   `main_window` go through `run_operation`, which connects all three terminal
+   signals *before* `start()`, killing the race, and gives every site a
+   cancellation handler (`cancelled` was previously connected nowhere, so every
+   cancel left the progress panel spinning). `_start_op`'s discarded `button`
+   argument is gone. `require_wrapper()` exists for the 28 silent
+   `if not wrapper: return` no-ops but **call sites are not migrated yet** —
+   that is the one piece of Chunk 2 left for later.
+4. **`3bb214b`** — 34 wrapper methods raise `MtkOperationError` instead of
+   returning `False`. Because mtkclient prints its reason and *then* calls
+   `sys.exit()`, the bridge keeps a 200-line ring buffer and the error quotes
+   the last dozen lines, so a failed write finally says why. `get_partitions`
+   no longer swallows everything with `except (SystemExit, Exception): pass`.
+   `connect_preloader` / `configure_da` deliberately still return bool, to
+   leave the in-use connection flow untouched.
+
+**Scope correction:** the plan predicted ~180–230 lines removed in step 3. The
+real figure is ~46 off the call sites, offset by the 44 lines of `_run_op` and
+`_on_op_cancelled` — roughly net zero. The duplicated wiring really is gone;
+the line-count win was never there. Do not carry that estimate forward.
+
+Tests 10 → 41. Verified: app launches, writes 2004 log lines, zero ANSI
+escapes in the log, MainWindow builds and tears down over 5+3+3 cycles with no
+coredump.
+
+---
+
+## Old Chunk 2 notes
+
 2. Fix `backend/worker.py:61-63` — stop discarding the exception and traceback
    when `is_cancelled` is set. Carry the error *with* cancellation context.
    This is the single highest-value fix in the codebase: it is why a failed
