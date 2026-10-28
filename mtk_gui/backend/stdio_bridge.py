@@ -9,10 +9,23 @@ ordering that depends on it.
 """
 import io
 import logging
+import re
 import sys
 import threading
 from collections import deque
 from collections.abc import Callable
+
+# mtkclient colours its output with ANSI escape sequences. Those are correct
+# on a terminal but corrupt both the log file (they break grep) and the GUI
+# panel (which renders them literally), so the captured copy is stripped while
+# the passthrough keeps them intact.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from captured text."""
+    return _ANSI_RE.sub("", text)
+
 
 # Sinks that receive every captured line regardless of GUI attachment, so that
 # output survives a crash that takes the log panel with it.
@@ -82,6 +95,7 @@ class BufferedTextStream(io.TextIOBase):
             self._partial += text.replace("\r", "\n")
             while "\n" in self._partial:
                 line, self._partial = self._partial.split("\n", 1)
+                line = strip_ansi(line)
                 if line.strip():
                     ready.append(line)
             callback = self._callback
@@ -135,6 +149,7 @@ class BufferedTextStream(io.TextIOBase):
         with self._lock:
             line, self._partial = self._partial, ""
             callback = self._callback
+        line = strip_ansi(line)
         if not line.strip():
             return
         _emit_to_sinks(line, self._level)

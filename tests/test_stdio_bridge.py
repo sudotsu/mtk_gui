@@ -101,3 +101,50 @@ def test_broken_passthrough_is_dropped_not_fatal():
     stream = BufferedTextStream(Broken())
     stream.write("x\n")  # must not raise
     assert stream._passthrough is None
+
+
+def test_ansi_escapes_stripped_from_captured_lines():
+    """mtkclient's colour codes must not reach the log file or GUI panel."""
+    sink = io.StringIO()
+    stream = BufferedTextStream(sink)
+    captured = []
+    stream.attach(captured.append)
+
+    stream.write("\x1b[31mStatus: Handshake failed, retrying...\x1b[0m\n")
+
+    assert captured == ["Status: Handshake failed, retrying..."]
+
+
+def test_ansi_escapes_preserved_on_passthrough():
+    """The terminal keeps its colours; only the captured copy is stripped."""
+    sink = io.StringIO()
+    stream = BufferedTextStream(sink)
+    stream.attach(lambda _: None)
+
+    coloured = "\x1b[31mred\x1b[0m\n"
+    stream.write(coloured)
+
+    assert sink.getvalue() == coloured
+
+
+def test_line_of_only_ansi_codes_is_dropped():
+    """A line that is nothing but escapes becomes blank and is discarded."""
+    stream = BufferedTextStream(io.StringIO())
+    captured = []
+    stream.attach(captured.append)
+
+    stream.write("\x1b[2J\x1b[H\n")
+
+    assert captured == []
+
+
+def test_ansi_stripped_from_trailing_partial_line():
+    """drain_partial() strips too, or a crash's last line arrives corrupted."""
+    stream = BufferedTextStream(io.StringIO())
+    captured = []
+    stream.attach(captured.append)
+
+    stream.write("\x1b[31mno trailing newline")
+    stream.drain_partial()
+
+    assert captured == ["no trailing newline"]
