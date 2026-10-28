@@ -16,7 +16,7 @@ from mtk_gui.backend.mtk_wrapper import DeviceInfo, MtkWrapper
 from mtk_gui.backend.port_detection import find_mtk_serial_port
 from mtk_gui.backend.stdio_bridge import attach_streams, detach_streams
 from mtk_gui.backend.worker import Cancellation, Worker
-from mtk_gui.constants import USB_POLL_INTERVAL_MS
+from mtk_gui.constants import CONNECTION_TIMEOUT_SECONDS, USB_POLL_INTERVAL_MS
 
 
 def _usb_device_identity():
@@ -108,16 +108,6 @@ class DeviceManager(QObject):
         self._preloader_info.connect(self._on_preloader_info)
         self._detected_serial_port: str | None = None
 
-        # The MediaTek preloader accepts a handshake only in the moment it
-        # enumerates. Detection therefore cannot be separated from the
-        # handshake by a human mouse click, so "connect" arms the poller and
-        # the handshake begins the instant a device appears. A phone already on
-        # the bus when the user arms has missed its window; its identity is
-        # recorded here so the poller ignores it until it is physically
-        # reconnected.
-        self._connect_armed = False
-        self._stale_usb_identity: tuple | None = None
-
         # Connection settings
         self.preloader_path: str | None = None
         self.da_loader_path: str | None = None
@@ -178,26 +168,14 @@ class DeviceManager(QObject):
                 self._poll_stop.wait(interval)
                 continue
             try:
-                identity = _usb_device_identity() if usb is not None else None
-                if identity is None:
-                    # Nothing on the bus, so whatever was stale is now gone and
-                    # the next appearance is a genuine fresh enumeration.
-                    self._stale_usb_identity = None
-                elif identity == self._stale_usb_identity:
-                    # The same enumeration we were told to ignore. Its
-                    # handshake window has closed; wait for a physical replug.
-                    self._poll_stop.wait(interval)
-                    continue
-
                 serial_port = find_mtk_serial_port()
                 if serial_port is not None:
-                    self._stale_usb_identity = None
                     self._usb_detected.emit(
                         serial_port.pid or 0, serial_port.device)
                     return
 
+                identity = _usb_device_identity() if usb is not None else None
                 if identity is not None:
-                    self._stale_usb_identity = None
                     self._usb_detected.emit(identity[2], "")
                     return
             except Exception as err:
@@ -234,14 +212,9 @@ class DeviceManager(QObject):
             logging.INFO,
         )
 
-        # Handshake immediately. Any delay here closes the window.
-        if self._connect_armed:
-            self._begin_handshake()
-
     def connect_device(self):
-        """Initiate connection to detected device."""
+        """Begin the Preloader handshake, retrying until the device appears."""
         if self._state in (
-            DeviceState.DETECTING,
             DeviceState.HANDSHAKING,
             DeviceState.CONNECTING_DA,
             DeviceState.CANCELLING,
@@ -249,38 +222,32 @@ class DeviceManager(QObject):
         ):
             return
 
-        # An explicitly selected COM port is already a concrete target.
-        if self.serial_port is not None:
-            self._begin_handshake()
-            return
-
-        # Automatic mode: arm, then handshake the instant a device enumerates.
-        # Doing this on detection rather than on a second click is not a
-        # convenience -- the preloader's handshake window is a few hundred
-        # milliseconds, so a flow that waits for a human to click after
-        # detection can only connect by luck.
-        self._connect_armed = True
-        self._stale_usb_identity = _usb_device_identity()
-        if self._stale_usb_identity is not None:
+        # Start the handshake now rather than waiting for the poller to notice
+        # a device. The preloader accepts a handshake only in the few hundred
+        # milliseconds after it enumerates, and USB_POLL_INTERVAL_MS is 2000ms,
+        # so a detect-then-handshake flow misses the window essentially every
+        # time -- which is exactly what the "Handshake failed, retrying..."
+        # logs showed. mtkclient retries internally; that retry loop IS the
+        # mechanism that catches the window, and its own advice is to have it
+        # running before the phone is connected.
+        if _usb_device_identity() is not None:
             self.log_message.emit(
-                "This phone is already connected, and the MediaTek preloader "
-                "only accepts a handshake in the moment it enumerates. "
-                "Unplug the USB cable and plug it back in now - the "
-                "connection will start on its own.",
+                "A device is already connected, so its handshake window has "
+                "closed. Unplug the USB cable and plug it back in now - the "
+                f"handshake is retrying and will catch it, for up to "
+                f"{CONNECTION_TIMEOUT_SECONDS}s.",
                 logging.WARNING,
             )
         else:
             self.log_message.emit(
-                "Waiting for a MediaTek device. Connect the phone now.",
+                "Waiting for a device. Connect the phone now.",
                 logging.INFO,
             )
-        self._set_state(DeviceState.DETECTING)
-        self.start_polling()
+        self._begin_handshake()
 
     def _begin_handshake(self):
         """Create the wrapper and run the preloader/DA stages in a worker."""
         self.stop_polling()
-        self._connect_armed = False
         self._set_state(DeviceState.HANDSHAKING)
 
         # Create signal proxy for mtkclient
@@ -394,7 +361,6 @@ class DeviceManager(QObject):
     def cancel_connection(self):
         """Stop a pending detection, handshake, or DA initialization."""
         if self._state == DeviceState.DETECTING:
-            self._connect_armed = False
             self.stop_polling()
             self._set_state(DeviceState.DISCONNECTED)
             self.log_message.emit("Device detection stopped.", logging.INFO)
@@ -444,8 +410,6 @@ class DeviceManager(QObject):
             self._wrapper = None
         self._device_info = DeviceInfo()
         self._detected_serial_port = None
-        self._connect_armed = False
-        self._stale_usb_identity = None
         self._set_state(DeviceState.DISCONNECTED)
         self.device_info_updated.emit(self._device_info)
         self.log_message.emit("Device disconnected.", logging.INFO)
@@ -453,7 +417,6 @@ class DeviceManager(QObject):
     def begin_shutdown(self):
         """Called during app close — prevents post-shutdown side effects."""
         self._shutting_down = True
-        self._connect_armed = False
         detach_streams()
         if self._gui_log_handler is not None:
             logging.getLogger(DIAG_LOGGER_NAME).removeHandler(self._gui_log_handler)

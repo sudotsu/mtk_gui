@@ -1,9 +1,11 @@
-"""The arm-then-handshake contract for MediaTek preloader connection.
+"""How connection starts, and why it starts immediately.
 
-The preloader accepts a handshake only in the few hundred milliseconds right
-after it enumerates. These tests pin the two consequences: a phone already on
-the bus must not be handshaked (its window is gone), and a freshly enumerated
-one must be handshaked without waiting for a human.
+The MediaTek preloader accepts a handshake only in the few hundred
+milliseconds after it enumerates. USB_POLL_INTERVAL_MS is 2000ms, so any
+flow that waits for the poller to notice a device and *then* handshakes
+misses the window essentially every time -- which is what the real-hardware
+logs showed, endlessly. mtkclient retries the handshake internally, and that
+retry loop is what actually catches the window, so connect starts it at once.
 """
 import logging
 
@@ -23,76 +25,68 @@ def manager(qapp):
     m.stop_polling()
 
 
-def test_arming_with_phone_already_attached_does_not_handshake(manager, monkeypatch):
-    """A device already on the bus has missed its window; instruct a replug."""
-    monkeypatch.setattr(dm, "_usb_device_identity", lambda: (3, 20, 0x2000))
-    monkeypatch.setattr(manager, "start_polling", lambda: None)
+def test_connect_starts_the_handshake_immediately(manager, monkeypatch):
+    """The whole fix: no waiting for detection before handshaking."""
+    monkeypatch.setattr(dm, "_usb_device_identity", lambda: None)
     began = []
     monkeypatch.setattr(manager, "_begin_handshake", lambda: began.append(True))
 
+    manager.connect_device()
+
+    assert began == [True], "handshake must start on connect, not on detection"
+
+
+def test_attached_device_is_told_to_reconnect(manager, monkeypatch):
+    """A device already on the bus has missed its window; say so plainly."""
+    monkeypatch.setattr(dm, "_usb_device_identity", lambda: (3, 20, 0x2000))
+    monkeypatch.setattr(manager, "_begin_handshake", lambda: None)
     messages = []
     manager.log_message.connect(lambda msg, lvl: messages.append((msg, lvl)))
 
     manager.connect_device()
 
-    assert began == [], "must not handshake a stale enumeration"
-    assert manager.state is DeviceState.DETECTING
-    assert manager._stale_usb_identity == (3, 20, 0x2000)
     assert any(
         "plug it back in" in msg and lvl == logging.WARNING
         for msg, lvl in messages
-    ), f"expected a replug instruction, got {messages}"
+    ), f"expected a reconnect instruction, got {messages}"
 
 
-def test_arming_with_no_phone_waits_without_warning(manager, monkeypatch):
+def test_no_device_waits_without_a_warning(manager, monkeypatch):
     monkeypatch.setattr(dm, "_usb_device_identity", lambda: None)
-    monkeypatch.setattr(manager, "start_polling", lambda: None)
+    monkeypatch.setattr(manager, "_begin_handshake", lambda: None)
+    messages = []
+    manager.log_message.connect(lambda msg, lvl: messages.append((msg, lvl)))
 
     manager.connect_device()
 
-    assert manager.state is DeviceState.DETECTING
-    assert manager._stale_usb_identity is None
-    assert manager._connect_armed is True
+    assert all(lvl != logging.WARNING for _m, lvl in messages)
+    assert any("Connect the phone now" in m for m, _l in messages)
 
 
-def test_detection_while_armed_handshakes_immediately(manager, monkeypatch):
-    """Detection must chain straight into the handshake, with no second click."""
+@pytest.mark.parametrize("state", [
+    DeviceState.HANDSHAKING,
+    DeviceState.CONNECTING_DA,
+    DeviceState.CANCELLING,
+    DeviceState.CONNECTED,
+])
+def test_connect_is_ignored_while_already_busy(manager, monkeypatch, state):
+    """Re-entry must not stack a second handshake on a live one."""
+    monkeypatch.setattr(dm, "_usb_device_identity", lambda: None)
     began = []
     monkeypatch.setattr(manager, "_begin_handshake", lambda: began.append(True))
-    manager._connect_armed = True
+    manager._state = state
 
-    manager._on_usb_detected(0x2000, "")
-
-    assert began == [True], "armed detection must handshake at once"
-
-
-def test_detection_while_not_armed_only_reports(manager, monkeypatch):
-    """Passive detection must not start connecting on its own."""
-    began = []
-    monkeypatch.setattr(manager, "_begin_handshake", lambda: began.append(True))
-    manager._connect_armed = False
-
-    manager._on_usb_detected(0x2000, "")
+    manager.connect_device()
 
     assert began == []
-    assert manager.state is DeviceState.PRELOADER
 
 
-def test_cancelling_detection_disarms(manager, monkeypatch):
-    """A queued detection must not connect after the user cancelled."""
+def test_explicit_serial_port_also_handshakes(manager, monkeypatch):
     monkeypatch.setattr(dm, "_usb_device_identity", lambda: None)
-    monkeypatch.setattr(manager, "start_polling", lambda: None)
-    monkeypatch.setattr(manager, "stop_polling", lambda: None)
+    began = []
+    monkeypatch.setattr(manager, "_begin_handshake", lambda: began.append(True))
+    manager.serial_port = "/dev/ttyACM0"
+
     manager.connect_device()
-    assert manager._connect_armed is True
 
-    manager.cancel_connection()
-
-    assert manager._connect_armed is False
-    assert manager.state is DeviceState.DISCONNECTED
-
-
-def test_shutdown_disarms(manager):
-    manager._connect_armed = True
-    manager.begin_shutdown()
-    assert manager._connect_armed is False
+    assert began == [True]
