@@ -67,6 +67,11 @@ class BufferedTextStream(io.TextIOBase):
         self._pending = deque(maxlen=2000)
         self._dropped = 0
         self._lock = threading.Lock()
+        # A log sink or GUI callback that itself prints would re-enter write()
+        # and recurse until the stack is exhausted. Delivery is therefore
+        # guarded per-thread: nested writes still reach the real stream, but
+        # are not fanned back out to the sinks that caused them.
+        self._reentry = threading.local()
 
     @property
     def encoding(self):
@@ -90,6 +95,11 @@ class BufferedTextStream(io.TextIOBase):
 
         self._write_passthrough(text)
 
+        if getattr(self._reentry, "active", False):
+            # Re-entered from inside a sink or GUI callback. The text has
+            # reached the real stream; fanning it out again would recurse.
+            return len(text)
+
         ready = []
         with self._lock:
             self._partial += text.replace("\r", "\n")
@@ -105,10 +115,14 @@ class BufferedTextStream(io.TextIOBase):
                         self._dropped += 1
                     self._pending.append(line)
 
-        for line in ready:
-            _emit_to_sinks(line, self._level)
-        if callback is not None:
-            self._deliver(callback, ready)
+        self._reentry.active = True
+        try:
+            for line in ready:
+                _emit_to_sinks(line, self._level)
+            if callback is not None:
+                self._deliver(callback, ready)
+        finally:
+            self._reentry.active = False
         return len(text)
 
     def _write_passthrough(self, text: str):
@@ -125,7 +139,7 @@ class BufferedTextStream(io.TextIOBase):
         """Push lines to the GUI, tolerating a destroyed Qt receiver.
 
         The callback runs outside the lock to avoid deadlocking against a GUI
-        thread that is itself printing, which means ``detach()`` can race an
+        thread that is itself printing, which means ``detach_callback()`` can race an
         in-flight delivery during shutdown. Swallowing the resulting error is
         deliberate: the alternative is an exception raised out of an arbitrary
         ``print()`` on a worker thread.
@@ -152,11 +166,17 @@ class BufferedTextStream(io.TextIOBase):
         line = strip_ansi(line)
         if not line.strip():
             return
-        _emit_to_sinks(line, self._level)
-        if callback is not None:
-            self._deliver(callback, [line])
+        if getattr(self._reentry, "active", False):
+            return
+        self._reentry.active = True
+        try:
+            _emit_to_sinks(line, self._level)
+            if callback is not None:
+                self._deliver(callback, [line])
+        finally:
+            self._reentry.active = False
 
-    def attach(self, callback: Callable[[str], None]):
+    def attach_callback(self, callback: Callable[[str], None]):
         with self._lock:
             self._callback = callback
             pending = list(self._pending)
@@ -168,10 +188,30 @@ class BufferedTextStream(io.TextIOBase):
                 0, f"[{dropped} earlier line(s) dropped from the startup buffer]")
         self._deliver(callback, pending)
 
-    def detach(self):
+    def detach_callback(self):
+        """Stop forwarding to the GUI, flushing any trailing partial line."""
         self.drain_partial()
         with self._lock:
             self._callback = None
+
+    def detach(self):
+        """Refuse to surrender the underlying buffer.
+
+        ``io.TextIOBase.detach`` means "return the underlying binary buffer and
+        become unusable". mtkclient's ``Library/utils.py`` runs
+
+            sys.stdout = io.TextIOWrapper(sys.stdout.detach(), encoding="utf-8")
+
+        at import time, guarded by ``except (io.UnsupportedOperation,
+        AttributeError)``. Raising the documented exception makes that guard do
+        what its author intended -- leave our tee in place untouched.
+
+        This method previously carried the GUI-detach behaviour, so mtkclient's
+        import silently severed the GUI log callback; it was re-attached
+        afterwards only because DeviceManager happens to construct later. That
+        ordering was load-bearing and undocumented.
+        """
+        raise io.UnsupportedOperation("stdio bridge does not release its buffer")
 
 
 def install_windowed_streams():
@@ -190,14 +230,16 @@ def install_windowed_streams():
 def attach_streams(log_callback: Callable[[str, int], None]):
     """Forward captured lines to the GUI log after its Qt signals exist."""
     if isinstance(sys.stdout, BufferedTextStream):
-        sys.stdout.attach(lambda line: log_callback(line, logging.INFO))
+        sys.stdout.attach_callback(
+            lambda line: log_callback(line, logging.INFO))
     if isinstance(sys.stderr, BufferedTextStream):
-        sys.stderr.attach(lambda line: log_callback(line, logging.ERROR))
+        sys.stderr.attach_callback(
+            lambda line: log_callback(line, logging.ERROR))
 
 
 def detach_streams():
     """Release GUI callbacks during shutdown."""
     if isinstance(sys.stdout, BufferedTextStream):
-        sys.stdout.detach()
+        sys.stdout.detach_callback()
     if isinstance(sys.stderr, BufferedTextStream):
-        sys.stderr.detach()
+        sys.stderr.detach_callback()
