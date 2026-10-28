@@ -227,7 +227,7 @@ class DeviceManager(QObject):
         )
 
         worker = Worker(self._do_connect)
-        worker.finished.connect(self._on_connect_finished)
+        worker.result_ready.connect(self._on_connect_finished)
         worker.error.connect(self._on_connect_error)
         worker.cancelled.connect(self._on_connect_cancelled)
         self._connect_worker = worker
@@ -386,7 +386,7 @@ class DeviceManager(QObject):
         w = Worker(func, *args, **kwargs)
         was_idle = not self._operation_workers
         self._operation_workers.append(w)
-        w.finished.connect(lambda _: self._untrack_operation_worker(w))
+        w.result_ready.connect(lambda _: self._untrack_operation_worker(w))
         w.error.connect(lambda _: self._untrack_operation_worker(w))
         w.cancelled.connect(lambda: self._untrack_operation_worker(w))
         self._track_worker(w)
@@ -402,7 +402,7 @@ class DeviceManager(QObject):
 
     def _track_worker(self, worker: Worker):
         self._workers.append(worker)
-        worker.finished.connect(lambda _: self._untrack_worker(worker))
+        worker.result_ready.connect(lambda _: self._untrack_worker(worker))
         worker.error.connect(lambda _: self._untrack_worker(worker))
         worker.cancelled.connect(lambda: self._untrack_worker(worker))
 

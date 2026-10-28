@@ -357,7 +357,7 @@ class MainWindow(QMainWindow):
         if not wrapper:
             return
         w = self.device_manager.create_worker(wrapper.get_partitions)
-        w.finished.connect(self._on_partitions_loaded)
+        w.result_ready.connect(self._on_partitions_loaded)
         w.error.connect(lambda e: self._log_panel.append_log(
             f"Failed to load partitions: {e}", logging.WARNING))
         w.start()
@@ -409,26 +409,26 @@ class MainWindow(QMainWindow):
                                wrapper.read_selected_partitions,
                                params["partitions"], directory,
                                params["parttype"], params.get("dump_gpt", False))
-            w.finished.connect(self._on_multi_read_done)
+            w.result_ready.connect(self._on_multi_read_done)
             w.error.connect(lambda e: self._on_op_error("Read", e))
         elif mode == 1:  # Full Flash
             w = self.device_manager.create_worker(
                 wrapper.read_flash, params["filename"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Read flash", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Read flash", r))
             w.error.connect(lambda e: self._on_op_error("Read flash", e))
             w.start()
         elif mode == 2:  # By Offset
             w = self.device_manager.create_worker(
                 wrapper.read_offset, params["offset"], params["length"],
                 params["filename"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Read offset", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Read offset", r))
             w.error.connect(lambda e: self._on_op_error("Read offset", e))
             w.start()
         elif mode == 3:  # By Sector
             w = self.device_manager.create_worker(
                 wrapper.read_sectors, params["start"], params["sectors"],
                 params["filename"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Read sectors", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Read sectors", r))
             w.error.connect(lambda e: self._on_op_error("Read sectors", e))
             w.start()
 
@@ -476,26 +476,26 @@ class MainWindow(QMainWindow):
             w = self.device_manager.create_worker(
                 wrapper.write_partitions, params["parttype"],
                 params["filenames"], params["partitions"])
-            w.finished.connect(lambda r: self._on_op_done("Write partitions", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Write partitions", r))
             w.error.connect(lambda e: self._on_op_error("Write", e))
             w.start()
         elif mode == 1:  # Full Flash
             w = self.device_manager.create_worker(
                 wrapper.write_flash, params["filenames"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Write flash", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Write flash", r))
             w.error.connect(lambda e: self._on_op_error("Write flash", e))
             w.start()
         elif mode == 2:  # By Offset
             w = self.device_manager.create_worker(
                 wrapper.write_offset, params["offset"], params["length"],
                 params["filename"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Write offset", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Write offset", r))
             w.error.connect(lambda e: self._on_op_error("Write offset", e))
             w.start()
         elif mode == 3:  # From Directory
             w = self.device_manager.create_worker(
                 wrapper.write_from_directory, params["parttype"], params["directory"])
-            w.finished.connect(lambda r: self._on_op_done("Write from dir", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Write from dir", r))
             w.error.connect(lambda e: self._on_op_error("Write dir", e))
             w.start()
 
@@ -530,13 +530,13 @@ class MainWindow(QMainWindow):
         if params["mode"] == 0:  # Partitions
             w = self.device_manager.create_worker(
                 wrapper.erase_partitions, params["partitions"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Erase partitions", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Erase partitions", r))
             w.error.connect(lambda e: self._on_op_error("Erase", e))
             w.start()
         else:  # By Sector
             w = self.device_manager.create_worker(
                 wrapper.erase_sectors, params["sector"], params["sectors"], params["parttype"])
-            w.finished.connect(lambda r: self._on_op_done("Erase sectors", r))
+            w.result_ready.connect(lambda r: self._on_op_done("Erase sectors", r))
             w.error.connect(lambda e: self._on_op_error("Erase sectors", e))
             w.start()
 
@@ -547,7 +547,7 @@ class MainWindow(QMainWindow):
         directory = self._keys_tab.output_directory
         self._progress_panel.start("Generating keys...")
         w = self.device_manager.create_worker(wrapper.generate_keys, directory)
-        w.finished.connect(self._on_keys_done)
+        w.result_ready.connect(self._on_keys_done)
         w.error.connect(lambda e: self._on_op_error("Keys", e))
         w.start()
 
@@ -578,7 +578,7 @@ class MainWindow(QMainWindow):
         critical = self._bootloader_tab.critical_mode
         self._progress_panel.start(f"{action}ing bootloader...")
         w = self.device_manager.create_worker(wrapper.seccfg_unlock, lock, critical)
-        w.finished.connect(lambda r: self._on_op_done(f"Bootloader {action.lower()}", r))
+        w.result_ready.connect(lambda r: self._on_op_done(f"Bootloader {action.lower()}", r))
         w.error.connect(lambda e: self._on_op_error(action, e))
         w.start()
 
@@ -593,7 +593,7 @@ class MainWindow(QMainWindow):
         mode = self._bootloader_tab.vbmeta_mode
         self._progress_panel.start("Patching vbmeta...")
         w = self.device_manager.create_worker(wrapper.vbmeta_patch, mode)
-        w.finished.connect(lambda r: self._on_op_done("vbmeta patch", r))
+        w.result_ready.connect(lambda r: self._on_op_done("vbmeta patch", r))
         w.error.connect(lambda e: self._on_op_error("vbmeta", e))
         w.start()
 
@@ -610,7 +610,7 @@ class MainWindow(QMainWindow):
         self._last_peek_addr = params["addr"]
         w = self.device_manager.create_worker(
             wrapper.peek, params["addr"], params["length"], None, params["registers"])
-        w.finished.connect(self._on_peek_done)
+        w.result_ready.connect(self._on_peek_done)
         w.error.connect(lambda e: self._on_op_error("Peek", e))
         w.start()
 
@@ -630,7 +630,7 @@ class MainWindow(QMainWindow):
         w = self.device_manager.create_worker(
             wrapper.peek, params["addr"], params["length"],
             filename, params["registers"])
-        w.finished.connect(lambda r: self._on_op_done("Memory read to file", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Memory read to file", r))
         w.error.connect(lambda e: self._on_op_error("Memory read", e))
         w.start()
 
@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Writing memory...")
         w = self.device_manager.create_worker(
             wrapper.poke, params["addr"], params["data"])
-        w.finished.connect(lambda r: self._on_op_done("Memory write", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Memory write", r))
         w.error.connect(lambda e: self._on_op_error("Poke", e))
         w.start()
 
@@ -667,7 +667,7 @@ class MainWindow(QMainWindow):
         filename = os.path.join(directory, "brom.bin")
         self._progress_panel.start("Dumping BROM...")
         w = self.device_manager.create_worker(wrapper.dump_brom, filename)
-        w.finished.connect(lambda r: self._on_op_done("BROM dump", r))
+        w.result_ready.connect(lambda r: self._on_op_done("BROM dump", r))
         w.error.connect(lambda e: self._on_op_error("BROM dump", e))
         w.start()
 
@@ -680,7 +680,7 @@ class MainWindow(QMainWindow):
         w = self._start_op(self._rpmb_tab.read_button,
                            wrapper.read_rpmb, params["filename"],
                            params["sector"], params["sectors"])
-        w.finished.connect(lambda r: self._on_op_done("RPMB read", r))
+        w.result_ready.connect(lambda r: self._on_op_done("RPMB read", r))
         w.error.connect(lambda e: self._on_op_error("RPMB read", e))
 
     def _on_rpmb_write(self):
@@ -699,7 +699,7 @@ class MainWindow(QMainWindow):
         w = self._start_op(self._rpmb_tab.write_button,
                            wrapper.write_rpmb, params["filename"],
                            params["sector"], params["sectors"])
-        w.finished.connect(lambda r: self._on_op_done("RPMB write", r))
+        w.result_ready.connect(lambda r: self._on_op_done("RPMB write", r))
         w.error.connect(lambda e: self._on_op_error("RPMB write", e))
 
     def _on_read_efuses(self):
@@ -708,7 +708,7 @@ class MainWindow(QMainWindow):
             return
         self._progress_panel.start("Reading eFuses...")
         w = self.device_manager.create_worker(wrapper.read_efuses)
-        w.finished.connect(self._on_efuses_done)
+        w.result_ready.connect(self._on_efuses_done)
         w.error.connect(lambda e: self._on_op_error("eFuse read", e))
         w.start()
 
@@ -742,7 +742,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Reading IMEIs...")
         w = self._start_op(self._imei_tab.read_button,
                            wrapper.read_imei, seed, aeskey)
-        w.finished.connect(self._on_imei_read_done)
+        w.result_ready.connect(self._on_imei_read_done)
         w.error.connect(lambda e: self._on_op_error("IMEI read", e))
 
     def _on_imei_read_done(self, result):
@@ -781,7 +781,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Writing IMEIs...")
         w = self._start_op(self._imei_tab.write_button,
                            wrapper.write_imei, imeis, seed, aeskey, params["product"])
-        w.finished.connect(lambda r: self._on_op_done("IMEI write", r))
+        w.result_ready.connect(lambda r: self._on_op_done("IMEI write", r))
         w.error.connect(lambda e: self._on_op_error("IMEI write", e))
 
     def _on_patch_modem(self):
@@ -794,7 +794,7 @@ class MainWindow(QMainWindow):
             return
         self._progress_panel.start("Patching modem...")
         w = self._start_op(self._imei_tab.patch_modem_button, wrapper.patch_modem)
-        w.finished.connect(lambda r: self._on_op_done("Modem patch", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Modem patch", r))
         w.error.connect(lambda e: self._on_op_error("Modem patch", e))
 
     def _on_nvitem_decrypt(self):
@@ -808,7 +808,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Decrypting NVItem...")
         w = self._start_op(self._imei_tab.decrypt_button,
                            wrapper.nvitem_crypt, filename, False)
-        w.finished.connect(lambda r: self._on_nvitem_done("Decrypt", r, filename))
+        w.result_ready.connect(lambda r: self._on_nvitem_done("Decrypt", r, filename))
         w.error.connect(lambda e: self._on_op_error("NVItem decrypt", e))
 
     def _on_nvitem_encrypt(self):
@@ -822,7 +822,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Encrypting NVItem...")
         w = self._start_op(self._imei_tab.encrypt_button,
                            wrapper.nvitem_crypt, filename, True)
-        w.finished.connect(lambda r: self._on_nvitem_done("Encrypt", r, filename))
+        w.result_ready.connect(lambda r: self._on_nvitem_done("Encrypt", r, filename))
         w.error.connect(lambda e: self._on_op_error("NVItem encrypt", e))
 
     def _on_nvitem_done(self, op: str, result, filename: str):
@@ -849,7 +849,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start(f"Crashing preloader (mode {crash_mode})...")
         w = self._start_op(self._exploit_tab.crash_button,
                            wrapper.crash_preloader, crash_mode)
-        w.finished.connect(lambda r: self._on_op_done("Crash preloader", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Crash preloader", r))
         w.error.connect(lambda e: self._on_op_error("Crash", e))
 
     def _on_brute(self):
@@ -863,7 +863,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Brute forcing (iterating crash modes)...")
         w = self._start_op(self._exploit_tab.brute_button,
                            wrapper.crash_preloader)  # mode=None → iterate all
-        w.finished.connect(lambda r: self._on_op_done("Brute force", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Brute force", r))
         w.error.connect(lambda e: self._on_op_error("Brute force", e))
 
     def _on_payload(self):
@@ -877,7 +877,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Running payload...")
         w = self._start_op(self._exploit_tab.payload_button,
                            wrapper.run_payload, filename)
-        w.finished.connect(lambda r: self._on_op_done("Payload", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Payload", r))
         w.error.connect(lambda e: self._on_op_error("Payload", e))
 
     def _on_stage2(self):
@@ -892,7 +892,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Running stage2...")
         w = self._start_op(self._exploit_tab.stage_button,
                            wrapper.run_stage2, filename, addr)
-        w.finished.connect(lambda r: self._on_op_done("Stage2", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Stage2", r))
         w.error.connect(lambda e: self._on_op_error("Stage2", e))
 
     def _on_meta_mode(self):
@@ -903,7 +903,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start(f"Setting meta mode to {mode}...")
         w = self._start_op(self._exploit_tab.meta_button,
                            wrapper.set_meta_mode, mode)
-        w.finished.connect(lambda r: self._on_op_done(f"Meta mode ({mode})", r))
+        w.result_ready.connect(lambda r: self._on_op_done(f"Meta mode ({mode})", r))
         w.error.connect(lambda e: self._on_op_error("Meta mode", e))
 
     def _on_reset(self):
@@ -912,7 +912,7 @@ class MainWindow(QMainWindow):
             return
         self._progress_panel.start("Resetting device...")
         w = self._start_op(self._exploit_tab.reset_button, wrapper.reset_device)
-        w.finished.connect(lambda r: self._on_op_done("Reset", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Reset", r))
         w.error.connect(lambda e: self._on_op_error("Reset", e))
 
     def _on_shutdown(self):
@@ -921,7 +921,7 @@ class MainWindow(QMainWindow):
             return
         self._progress_panel.start("Shutting down device...")
         w = self._start_op(self._exploit_tab.shutdown_button, wrapper.shutdown)
-        w.finished.connect(lambda r: self._on_op_done("Shutdown", r))
+        w.result_ready.connect(lambda r: self._on_op_done("Shutdown", r))
         w.error.connect(lambda e: self._on_op_error("Shutdown", e))
 
     # ── RPMB erase handler ───────────────────────────────
@@ -935,7 +935,7 @@ class MainWindow(QMainWindow):
             return
         self._progress_panel.start("Erasing RPMB...")
         w = self._start_op(self._rpmb_tab.erase_button, wrapper.erase_rpmb)
-        w.finished.connect(lambda r: self._on_op_done("RPMB erase", r))
+        w.result_ready.connect(lambda r: self._on_op_done("RPMB erase", r))
         w.error.connect(lambda e: self._on_op_error("RPMB erase", e))
 
     # ── Server handler ───────────────────────────────────
@@ -947,7 +947,7 @@ class MainWindow(QMainWindow):
         self._progress_panel.start("Running key server...")
         self._server_tab.set_status(True, "Key exchange in progress...")
         w = self._start_op(self._server_tab.start_button, wrapper.keyserver)
-        w.finished.connect(self._on_server_done)
+        w.result_ready.connect(self._on_server_done)
         w.error.connect(self._on_server_error)
 
     def _on_server_done(self, result):

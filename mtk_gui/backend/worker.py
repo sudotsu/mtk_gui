@@ -7,13 +7,20 @@ from PySide6.QtCore import QThread, Signal
 class Worker(QThread):
     """Runs a callable in a background thread, emitting progress and result signals.
 
-    Guarantees exactly one terminal signal is emitted: finished, error, or cancelled.
+    Guarantees exactly one terminal signal is emitted: result_ready, error, or
+    cancelled.
+
+    ``result_ready`` is deliberately NOT named ``finished``: ``QThread`` already
+    defines a ``finished`` signal that fires once the thread has actually exited.
+    A same-named signal here shadowed it and was emitted from inside ``run()``
+    while the thread was still alive, so anything connecting to ``finished``
+    expecting thread termination got the result instead.
     """
 
     progress = Signal(int, int)       # current, total
     log_message = Signal(str, int)    # message, level
     status_text = Signal(str)
-    finished = Signal(object)         # result (any)
+    result_ready = Signal(object)     # result (any)
     error = Signal(str)               # error message
     cancelled = Signal()              # emitted if cancelled before result
 
@@ -52,7 +59,7 @@ class Worker(QThread):
             if self.is_cancelled:
                 self.cancelled.emit()
             else:
-                self.finished.emit(result)
+                self.result_ready.emit(result)
         except SystemExit as e:
             if self.is_cancelled:
                 self.cancelled.emit()
