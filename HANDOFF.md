@@ -98,14 +98,28 @@ click*. That can only succeed by luck, which is why the log showed nothing but
 from the CLI fails identically and ends with *"Please disconnect, start
 mtkclient and reconnect."*
 
-Fix (`5555518`): `connect_device()` arms the poller; the handshake starts the
-instant a device appears. A phone already attached has missed its window, so
-arming records its `(bus, address)` — reassigned by the kernel on every
-re-enumeration — and the poller ignores that one enumeration while telling the
-user to replug. Disarms on cancel, disconnect and shutdown.
+First fix (`5555518`) found the right cause but used the wrong mechanism:
+arming the poller and handshaking on a fresh enumeration. **That cannot work** —
+`USB_POLL_INTERVAL_MS` is 2000ms against a window of a few hundred, an order of
+magnitude too slow. Tracing a real startup proved it: the phone re-enumerated
+by itself, the poller saw the new bus address, started a handshake, and still
+missed.
 
-Observed: the MT65xx re-enumerates on its own (address moved 20 → 22 → …), so
-the armed poller can catch a window without the cable being touched.
+Correct fix (`5a5ad85`): `connect_device()` starts the handshake **immediately**
+and lets mtkclient's own retry loop catch the enumeration. That loop is what
+`Handshake failed, retrying...` already was, and the CLI's own advice —
+*"Please disconnect, start mtkclient and reconnect"* — means get it running
+first, then connect the phone. The arming flag and stale-enumeration tracking
+are deleted; the correct fix does not need them. `_usb_device_identity()` is
+kept only to decide whether to tell the user to *connect* or to *reconnect*.
+
+`main_window` already auto-connects when state reaches `PRELOADER`; that is now
+the single chaining path instead of competing with an armed poller.
+
+**Still unverified: a successful handshake end to end.** The test phone left the
+USB bus partway through the session and the window can only be created
+physically. Verified instead: the retry loop starts, the right instruction is
+logged, and nothing happens when no device is present.
 
 **Three further defects found and fixed while testing:**
 
