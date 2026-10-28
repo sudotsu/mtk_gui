@@ -104,7 +104,7 @@ class DeviceManager(QObject):
         self._poll_stop = threading.Event()
         self._poll_thread: threading.Thread | None = None
         self._usb_detected.connect(self._on_usb_detected)
-        self._connection_stage.connect(self._set_state)
+        self._connection_stage.connect(self._on_connection_stage)
         self._preloader_info.connect(self._on_preloader_info)
         self._detected_serial_port: str | None = None
 
@@ -132,6 +132,13 @@ class DeviceManager(QObject):
         if new_state != self._state:
             self._state = new_state
             self.state_changed.emit(new_state)
+
+    def _on_connection_stage(self, stage: DeviceState):
+        """Apply a worker stage update unless the user already pressed Stop."""
+        # Stage signals are queued from the worker thread, so one emitted just
+        # before cancellation can arrive after CANCELLING was set.
+        if self._state != DeviceState.CANCELLING:
+            self._set_state(stage)
 
     def start_polling(self):
         """Start USB device polling in a background thread."""
@@ -200,7 +207,12 @@ class DeviceManager(QObject):
 
     def _on_usb_detected(self, pid: int, serial_port: str):
         """Handle USB detection on the main thread (via signal)."""
-        if self._shutting_down:
+        # The signal is queued from the poll thread; ignore it if the user
+        # stopped detection or started a connection before it arrived, since
+        # PRELOADER triggers an automatic connect.
+        if self._shutting_down or self._state not in (
+            DeviceState.DISCONNECTED, DeviceState.DETECTING
+        ):
             return
         from mtk_gui.constants import MTK_USB_VID
         self._detected_serial_port = serial_port or None
