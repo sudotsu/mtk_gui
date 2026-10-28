@@ -15,7 +15,7 @@ from mtk_gui.backend.log_interceptor import (
 from mtk_gui.backend.mtk_wrapper import DeviceInfo, MtkWrapper
 from mtk_gui.backend.port_detection import find_mtk_serial_port
 from mtk_gui.backend.stdio_bridge import attach_streams, detach_streams
-from mtk_gui.backend.worker import Worker
+from mtk_gui.backend.worker import Cancellation, Worker
 from mtk_gui.constants import USB_POLL_INTERVAL_MS
 
 
@@ -369,7 +369,7 @@ class DeviceManager(QObject):
         self.log_message.emit(f"Connection error: {summary}", logging.ERROR)
         self._log_vcom_fallback()
 
-    def _on_connect_cancelled(self):
+    def _on_connect_cancelled(self, info: Cancellation):
         self._connect_worker = None
         if self._wrapper:
             self._wrapper.disconnect()
@@ -377,7 +377,15 @@ class DeviceManager(QObject):
         self._device_info = DeviceInfo()
         self.device_info_updated.emit(self._device_info)
         self._set_state(DeviceState.DISCONNECTED)
-        self.log_message.emit("Connection attempt stopped.", logging.INFO)
+        # A cancellation that followed a failure carries the reason with it;
+        # reporting a bland "stopped" would discard the only explanation of
+        # why the device is in the state it is now in.
+        if info.failed:
+            self.log_message.emit(info.message, logging.ERROR)
+            if info.traceback:
+                self.log_message.emit(info.traceback, logging.DEBUG)
+        else:
+            self.log_message.emit("Connection attempt stopped.", logging.INFO)
 
     def _on_preloader_info(self, info: DeviceInfo):
         self._device_info = info
@@ -458,7 +466,7 @@ class DeviceManager(QObject):
         self._operation_workers.append(w)
         w.result_ready.connect(lambda _: self._untrack_operation_worker(w))
         w.error.connect(lambda _: self._untrack_operation_worker(w))
-        w.cancelled.connect(lambda: self._untrack_operation_worker(w))
+        w.cancelled.connect(lambda _: self._untrack_operation_worker(w))
         self._track_worker(w)
         if was_idle:
             self.operation_activity_changed.emit(True)
@@ -474,7 +482,7 @@ class DeviceManager(QObject):
         self._workers.append(worker)
         worker.result_ready.connect(lambda _: self._untrack_worker(worker))
         worker.error.connect(lambda _: self._untrack_worker(worker))
-        worker.cancelled.connect(lambda: self._untrack_worker(worker))
+        worker.cancelled.connect(lambda _: self._untrack_worker(worker))
 
     def _untrack_worker(self, worker: Worker):
         if worker in self._workers:
