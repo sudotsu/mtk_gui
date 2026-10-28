@@ -6,6 +6,7 @@ from enum import Enum, auto
 
 from PySide6.QtCore import QObject, Signal
 
+from mtk_gui.backend.diagnostics import CAPTURED_LOGGER_NAME
 from mtk_gui.backend.diagnostics import LOGGER_NAME as DIAG_LOGGER_NAME
 from mtk_gui.backend.log_interceptor import (
     GuiSignalProxy,
@@ -98,6 +99,13 @@ class DeviceManager(QObject):
         # to a logger nobody is watching.
         self._gui_log_handler = LogSignalHandler(self._log_emitter)
         self._gui_log_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+        # Captured stdout/stderr already reaches the GUI directly through
+        # attach_streams(). Those lines are logged under "mtk_gui.captured" so
+        # they land in the log file, and they propagate to this parent handler,
+        # so without this filter every mtkclient line appeared in the GUI twice
+        # -- once bare and once prefixed "mtk_gui.captured:".
+        self._gui_log_handler.addFilter(
+            lambda record: not record.name.startswith(CAPTURED_LOGGER_NAME))
         logging.getLogger(DIAG_LOGGER_NAME).addHandler(self._gui_log_handler)
 
         # USB poll thread

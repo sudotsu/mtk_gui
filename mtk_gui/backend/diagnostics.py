@@ -15,6 +15,12 @@ from logging.handlers import RotatingFileHandler
 from mtk_gui.backend.stdio_bridge import add_line_sink
 
 LOGGER_NAME = "mtk_gui"
+
+# Lines captured from stdout/stderr are logged under this child so they reach
+# the log file. They must NOT reach the GUI through a handler on the parent:
+# attach_streams() already delivers every captured line to the GUI directly, so
+# a handler on "mtk_gui" that sees these records shows each one twice.
+CAPTURED_LOGGER_NAME = f"{LOGGER_NAME}.captured"
 _LOG_FILENAME = "mtk-gui.log"
 _MAX_BYTES = 2 * 1024 * 1024
 _BACKUP_COUNT = 3
@@ -78,7 +84,7 @@ def install(level: int = logging.INFO) -> str | None:
 
     # Everything the stdout/stderr tee captures — which is where mtkclient's own
     # logging lands — also goes to the file.
-    captured = logging.getLogger(f"{LOGGER_NAME}.captured")
+    captured = logging.getLogger(CAPTURED_LOGGER_NAME)
     add_line_sink(lambda line, lvl: captured.log(lvl, line))
 
     _log_path = path
@@ -90,11 +96,39 @@ def install(level: int = logging.INFO) -> str | None:
             os.path.join(directory, "mtk-gui-fault.log"),
             "a", buffering=1, encoding="utf-8")
         faulthandler.enable(file=_fault_log, all_threads=True)
-    except OSError:
-        faulthandler.enable(all_threads=True)
+    except OSError as err:
+        # Do not fall back to faulthandler's default of sys.stderr. The stdio
+        # tee is installed before this runs and has no file descriptor, so
+        # faulthandler.enable() raises io.UnsupportedOperation against it --
+        # aborting startup entirely because a crash log could not be opened.
+        # Use the real stderr if it still has a descriptor, else go without.
+        if not _enable_faulthandler_on_real_stderr():
+            app_logger.warning(
+                "Fault handler disabled: could not open the fault log (%s) and "
+                "the real stderr has no usable file descriptor. A hard crash "
+                "will leave no trace on disk.", err)
 
     _install_excepthook(app_logger)
     return path
+
+
+def _enable_faulthandler_on_real_stderr() -> bool:
+    """Point faulthandler at the process's real stderr, if it has one.
+
+    faulthandler needs an actual file descriptor; it cannot write through a
+    Python-level stream object. ``sys.__stderr__`` is the pre-tee stream and is
+    None in a windowed build.
+    """
+    stream = sys.__stderr__
+    if stream is None:
+        return False
+    try:
+        if stream.fileno() < 0:
+            return False
+        faulthandler.enable(file=stream, all_threads=True)
+    except Exception:
+        return False
+    return True
 
 
 def _install_excepthook(logger: logging.Logger):
