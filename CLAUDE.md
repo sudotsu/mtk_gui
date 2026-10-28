@@ -26,5 +26,13 @@ Linux device access needs mtkclient's `Setup/Linux/52-mtk.rules` in
 - Worker and USB-poll signals are queued to the main thread; any slot that
   changes `DeviceState` must check the current state first, or a late signal
   undoes a user's Stop. `DeviceState.PRELOADER` auto-starts a connection.
-- No test suite exists yet. Only a real phone in BROM/Preloader mode proves
-  the connect path.
+- `uv run pytest` (43 tests). `tests/conftest.py` is load-bearing: it installs
+  the stdout tee and *then* imports mtkclient, because mtkclient's
+  `Library/utils.py` detaches `sys.stdout` at import time and would otherwise
+  kill pytest's capture buffer before a single test reports.
+- Import order in `app.py` is load-bearing for the same reason; a "tidy the
+  imports" commit silences the log panel. `tests/test_import_order.py` pins it.
+- Only a real phone in BROM/Preloader mode proves the connect path. The
+  preloader accepts a handshake for a few hundred ms after it enumerates, so
+  connecting starts mtkclient's retry loop immediately and the phone is
+  plugged in *after*; a poll-then-handshake flow cannot catch that window.

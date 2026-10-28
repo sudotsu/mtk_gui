@@ -9,3 +9,15 @@ build/
 .venv/
 venv/
 .env
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+
+# Artifacts this app writes into the working directory by default
+# (flash dumps, exported logs, generated keys)
+*.bin
+*.img
+mtk_log.txt
+hwparam.json
+logs/
